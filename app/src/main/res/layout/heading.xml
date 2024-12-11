@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="16dp"
+    android:gravity="center_vertical">
+
+    <!-- TextView hiển thị số (bên trái) -->
+    <TextView
+        android:id="@+id/numberTextView"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="start"
+        android:text="12345"
+        android:textSize="5sp"
+        android:textColor="#000000" />
+
+    <!-- TextView hiển thị ngày giờ (bên phải) -->
+    <TextView
+        android:id="@+id/dateTimeTextView"
+        android:layout_width="30pt"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="end"
+        android:text="2024-12-02 14:30"
+        android:textSize="5sp"
+        android:textColor="#000000" />
+</LinearLayout>

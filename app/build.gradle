@@ -1,0 +1,88 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.sdk.esc"
+        minSdkVersion 21
+        targetSdkVersion 34
+        versionCode APP_VERSION_CODE.toInteger()
+        versionName "ESC_Demo_V${APP_VERSION_NAME}"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        compileOptions {
+            sourceCompatibility JavaVersion.VERSION_1_8
+            targetCompatibility JavaVersion.VERSION_1_8
+        }
+
+        // Enable ViewBinding
+        viewBinding {
+            enabled = true
+        }
+    }
+
+    android.applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = defaultConfig.versionName + ".apk"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
+}
+
+dependencies {
+    // Replace ButterKnife with ViewBinding
+    // ButterKnife is deprecated, and ViewBinding is recommended for modern Android development.
+    implementation 'com.github.CymChad:BaseRecyclerViewAdapterHelper:2.9.47'
+    implementation fileTree(dir: "libs", include: ["*.jar", "*.aar"])
+    implementation 'com.jakewharton:butterknife:10.0.0'
+    annotationProcessor 'com.jakewharton:butterknife-compiler:10.0.0'
+
+    // Support Libraries
+    implementation 'androidx.appcompat:appcompat:1.2.0'
+    implementation 'androidx.recyclerview:recyclerview:1.2.1'  // Updated to the latest version
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'  // Updated to the latest version
+    implementation 'jp.co.cyberagent.android:gpuimage:2.1.0'
+
+    // Glide (updated version)
+    implementation 'com.github.bumptech.glide:glide:4.15.1'  // Updated to a more recent version
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.15.1'  // Updated to a more recent version
+
+    // Permissions
+    implementation 'com.github.tbruyelle:rxpermissions:0.10.2'
+    implementation 'io.reactivex.rxjava2:rxandroid:2.1.1'
+    implementation 'io.reactivex.rxjava2:rxkotlin:2.3.0'
+
+    // PictureSelector (updated version)
+    implementation 'io.github.lucksiege:pictureselector:v3.11.2'
+    implementation "androidx.camera:camera-core:1.1.0"
+    implementation "androidx.camera:camera-camera2:1.1.0"
+    implementation "androidx.camera:camera-lifecycle:1.1.0"
+    implementation "androidx.camera:camera-view:1.1.0" //
+    implementation 'com.quickbirdstudios:opencv:4.5.3'
+
+
+    // Testing
+    testImplementation 'junit:junit:4.13.2'  // Updated to a more recent version
+    androidTestImplementation 'androidx.test.ext:junit:1.1.3'  // Updated to a more recent version
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'  // Updated to a more recent version
+}
