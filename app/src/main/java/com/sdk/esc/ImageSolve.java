@@ -16,6 +16,7 @@ import android.renderscript.ScriptIntrinsicBlur;
 import android.renderscript.ScriptIntrinsicConvolve3x3;
 import android.view.View;
 
+
 import java.io.File;
 import java.util.Arrays;
 import java.util.Objects;
@@ -23,6 +24,7 @@ import java.util.Objects;
 import jp.co.cyberagent.android.gpuimage.GPUImage;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageBilateralBlurFilter;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageFilter;
+import jp.co.cyberagent.android.gpuimage.filter.GPUImageGaussianBlurFilter;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageGrayscaleFilter;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageSharpenFilter;
 
@@ -37,6 +39,23 @@ public class ImageSolve {
         bilateralFilter.setDistanceNormalizationFactor(distanceNormalizationFactor);
 
         gpuImage.setFilter(bilateralFilter);
+        return gpuImage.getBitmapWithFilterApplied();
+    }
+    public Bitmap applyGaussianBlurToBitmap(Bitmap srcBitmap, Context context, float radius) {
+        // Khởi tạo GPUImage với context
+        GPUImage gpuImage = new GPUImage(context);
+
+        // Tạo bộ lọc Gaussian Blur với bán kính tùy chỉnh
+        GPUImageGaussianBlurFilter blurFilter = new GPUImageGaussianBlurFilter();
+        blurFilter.setBlurSize(radius);  // Điều chỉnh bán kính (mức độ làm mờ)
+
+        // Áp dụng bộ lọc Gaussian Blur cho ảnh
+        gpuImage.setFilter(blurFilter);
+
+        // Đặt ảnh nguồn (Bitmap)
+        gpuImage.setImage(srcBitmap);
+
+        // Lấy Bitmap đã được xử lý
         return gpuImage.getBitmapWithFilterApplied();
     }
     public Bitmap resizeBitmapWithGPUImage(Context context, Bitmap originalBitmap, int newWidth) {
@@ -195,24 +214,14 @@ public class ImageSolve {
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
     }
 
-    public Bitmap applySharpening(Bitmap src) {
-        //Kernel sharpening
-//        float[] sharpenKernel = {
-//                0,  -0.5f,  0,
-//                -0.5f,  3, -0.5f,
-//                0,  -0.5f,  0
-//        };
+    public Bitmap applySharpening2(Bitmap src,float degree) {
 
+float degreemid=degree*4+1;
         float[] sharpenKernel = {
-                0,  -1f,  0,
-                -1f,  5f, -1f,
-                0,  -1f,  0
+                0,  -degree,  0,
+                -degree,  degreemid, -degree,
+                0,  -degree,  0
         };
-//        float[] sharpenKernel = {
-//                0,  -0.2f,  0,
-//                -0.2f,  1.8f, -0.2f,
-//                0,  -0.2f,  0
-//        };
         try {
             // Tạo RenderScript và Allocation
             RenderScript rs = RenderScript.create(context);
@@ -238,34 +247,7 @@ public class ImageSolve {
 
         return src;
     }
-    public Bitmap applyMedianFilter(Bitmap src) {
-        int width = src.getWidth();
-        int height = src.getHeight();
-        Bitmap resultBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
 
-        for (int y = 1; y < height - 1; y++) {
-            for (int x = 1; x < width - 1; x++) {
-                int[] neighbors = new int[9];
-                int index = 0;
-
-                // Lấy các pixel xung quanh pixel (x, y)
-                for (int j = -1; j <= 1; j++) {
-                    for (int i = -1; i <= 1; i++) {
-                        neighbors[index++] = src.getPixel(x + i, y + j);
-                    }
-                }
-
-                // Sắp xếp các giá trị màu và lấy giá trị trung vị
-                Arrays.sort(neighbors);
-                int medianColor = neighbors[4]; // Giá trị trung vị (vị trí thứ 5 trong mảng đã sắp xếp)
-
-                // Gán màu trung vị cho pixel (x, y)
-                resultBitmap.setPixel(x, y, medianColor);
-            }
-        }
-
-        return resultBitmap;
-    }
     public void clearCache() {
             File cacheDir = context.getCacheDir(); // Lấy thư mục cache
         if (cacheDir != null && cacheDir.isDirectory()) {

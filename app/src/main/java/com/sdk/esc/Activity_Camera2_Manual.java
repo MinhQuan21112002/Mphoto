@@ -14,7 +14,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.graphics.drawable.Drawable;
@@ -34,6 +33,7 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -55,15 +55,18 @@ import android.widget.RadioButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+
 import com.bumptech.glide.Glide;
 import com.luck.picture.lib.basic.PictureSelector;
 import com.luck.picture.lib.config.SelectMimeType;
 import com.luck.picture.lib.entity.LocalMedia;
 import com.luck.picture.lib.interfaces.OnResultCallbackListener;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -77,10 +80,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import print.Print;
-import android.media.MediaPlayer;
 
-public class Activity_Camera2 extends AppCompatActivity {
+import print.Print;
+
+public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
 
@@ -149,12 +152,12 @@ public class Activity_Camera2 extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera2);
         Intent intent = new Intent(ACTION_USB_PERMISSION);
-        intent.setPackage(Activity_Camera2.this.getPackageName());
+        intent.setPackage(Activity_Camera2_Manual.this.getPackageName());
         IntentFilter filter = new IntentFilter();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            mPermissionIntent = PendingIntent.getBroadcast(Activity_Camera2.this, 0, intent, PendingIntent.FLAG_MUTABLE);
+            mPermissionIntent = PendingIntent.getBroadcast(Activity_Camera2_Manual.this, 0, intent, PendingIntent.FLAG_MUTABLE);
         } else {
-            mPermissionIntent = PendingIntent.getBroadcast(Activity_Camera2.this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+            mPermissionIntent = PendingIntent.getBroadcast(Activity_Camera2_Manual.this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
         }
         UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
 
@@ -172,7 +175,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         filter.addAction(ACTION_USB_PERMISSION);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Activity_Camera2.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
+            Activity_Camera2_Manual.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
         textureView = findViewById(R.id.texture);
         ImageButton settingButton = findViewById(R.id.button_settings);
@@ -185,7 +188,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         textureView.setOnClickListener(v -> {
 
             if (!Print.IsOpened()) {
-                Toast.makeText(Activity_Camera2.this, "Please connect to Printer", Toast.LENGTH_SHORT).show();
+                Toast.makeText(Activity_Camera2_Manual.this, "Please connect to Printer", Toast.LENGTH_SHORT).show();
                 try {
                     if(havingUsb)
                     {
@@ -223,17 +226,17 @@ public class Activity_Camera2 extends AppCompatActivity {
                 // Phát âm thanh cho mỗi giây đếm ngược
                 switch (secondsRemaining+1) {
                     case 3:
-                        countdownSound = MediaPlayer.create(Activity_Camera2.this, R.raw.countdown);
+                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
                         countdownSound.start();
                         countdown.setText("3");
                         break;
                     case 2:
-                        countdownSound = MediaPlayer.create(Activity_Camera2.this, R.raw.countdown);
+                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
                         countdownSound.start();
                         countdown.setText("2");
                         break;
                     case 1:
-                        countdownSound = MediaPlayer.create(Activity_Camera2.this, R.raw.countdown);
+                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
                         countdownSound.start();
                         countdown.setText("1");
                         break;
@@ -256,7 +259,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
 
     private void connectUSB() {
-        UsbManager mUsbManager = (UsbManager) Activity_Camera2.this.getSystemService(Context.USB_SERVICE);
+        UsbManager mUsbManager = (UsbManager) Activity_Camera2_Manual.this.getSystemService(Context.USB_SERVICE);
         HashMap<String, UsbDevice> deviceList = mUsbManager.getDeviceList();
         Iterator<UsbDevice> deviceIterator = deviceList.values().iterator();
 
@@ -308,13 +311,13 @@ public class Activity_Camera2 extends AppCompatActivity {
                     synchronized (this) {
                         device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                         if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                            if (Print.PortOpen(Activity_Camera2.this, device) != 0) {
-                                Toast.makeText(Activity_Camera2.this, "Lỗi khi mở cổng", Toast.LENGTH_SHORT).show();
+                            if (Print.PortOpen(Activity_Camera2_Manual.this, device) != 0) {
+                                Toast.makeText(Activity_Camera2_Manual.this, "Lỗi khi mở cổng", Toast.LENGTH_SHORT).show();
                             } else {
-                                Toast.makeText(Activity_Camera2.this, "Kết nối thành công", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(Activity_Camera2_Manual.this, "Kết nối thành công", Toast.LENGTH_SHORT).show();
                             }
                         } else {
-                            Toast.makeText(Activity_Camera2.this, "Quyền bị từ chối", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(Activity_Camera2_Manual.this, "Quyền bị từ chối", Toast.LENGTH_SHORT).show();
                         }
                     }
                 }
@@ -454,7 +457,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
     }
     private void setPrintDialog2(String path) throws Exception {
-        ImageSolve imgSolve=new ImageSolve(Activity_Camera2.this);
+        ImageSolve imgSolve=new ImageSolve(Activity_Camera2_Manual.this);
         Bitmap origin = BitmapFactory.decodeFile(path);
 
 
@@ -500,7 +503,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         runOnUiThread(() -> {
             Bitmap bitmapimgView = imgSolve.drawableToBitmap(drawable);
             bitmapimgView=imgSolve.convertToGrayscale(bitmapimgView);
-            Glide.with(Activity_Camera2.this)
+            Glide.with(Activity_Camera2_Manual.this)
                     .load(bitmapimgView)  // Đường dẫn ảnh
                     .into(imageViewSecond);  // Gắn ảnh vào ImageView
         });
@@ -510,7 +513,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             // Ẩn popup khi click vào chính popup
             runOnUiThread(() -> {
                 try {
-                    PictureSelector.create(Activity_Camera2.this)
+                    PictureSelector.create(Activity_Camera2_Manual.this)
                             .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
                             .setImageEngine(GlideEngine.createGlideEngine())  // Use Glide for loading image
                             .forResult(new OnResultCallbackListener<LocalMedia>() {
@@ -532,7 +535,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
                                         }
                                         pictureUnder[0]=imgSolve.convertToGrayscale(pictureUnder[0]);
-                                        Glide.with(Activity_Camera2.this)
+                                        Glide.with(Activity_Camera2_Manual.this)
                                                 .load(pictureUnder[0])  // Đường dẫn ảnh
                                                 .into(imageViewSecond);  // Gắn ảnh vào ImageView
 
@@ -670,7 +673,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     }
     public void printImage(final Bitmap bitmap, final int light, final int size,
                            final boolean isRotate, final int sype) {
-        dialog = new ProgressDialog(Activity_Camera2.this);
+        dialog = new ProgressDialog(Activity_Camera2_Manual.this);
         dialog.setMessage("Printing.....");
         dialog.setProgress(100);
         dialog.show();
@@ -735,7 +738,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
            iAttribute =(16 | 32 | 2);
 
-            PublicAction PAct = new PublicAction(Activity_Camera2.this);
+            PublicAction PAct = new PublicAction(Activity_Camera2_Manual.this);
 
 
             Print.SetLeftMargin(iLeftMargin);
@@ -871,9 +874,9 @@ public class Activity_Camera2 extends AppCompatActivity {
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 
             assert map != null;
-            android.util.Size[] jpegSizes = map.getOutputSizes(ImageFormat.JPEG);
-            android.util.Size largestSize = jpegSizes[0];
-            for (android.util.Size size : jpegSizes) {
+            Size[] jpegSizes = map.getOutputSizes(ImageFormat.JPEG);
+            Size largestSize = jpegSizes[0];
+            for (Size size : jpegSizes) {
                 if (size.getWidth() * size.getHeight() > largestSize.getWidth() * largestSize.getHeight()) {
                     largestSize = size;
                 }
@@ -1002,7 +1005,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
-                    Toast.makeText(Activity_Camera2.this, "Configuration change", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(Activity_Camera2_Manual.this, "Configuration change", Toast.LENGTH_SHORT).show();
                 }
             }, null);
         } catch (CameraAccessException e) {
@@ -1019,7 +1022,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             assert map != null;
             imageDimension = map.getOutputSizes(SurfaceTexture.class)[0];
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(Activity_Camera2.this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+                ActivityCompat.requestPermissions(Activity_Camera2_Manual.this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
                 return;
             }
 
@@ -1045,7 +1048,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_DENIED) {
-                Toast.makeText(Activity_Camera2.this, "Sorry!!!, you can't use this app without granting camera permission", Toast.LENGTH_LONG).show();
+                Toast.makeText(Activity_Camera2_Manual.this, "Sorry!!!, you can't use this app without granting camera permission", Toast.LENGTH_LONG).show();
                 finish();
             }
         }
