@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -104,6 +105,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private TextureView textureView;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
+    private  int light=0;
+    private  float contrast= 1.7f;
     private final int PRINT_FAILURE = 0;
     private final int PRINT_THREE_INCH = 650;
     private final int PRINT_TWO_INCH = 384;
@@ -150,7 +153,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_camera2);
+        SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
+
+        btnPrint=findViewById(R.id.btnPrint);
+        ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
+        ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
+        light=Integer.parseInt(sharedPreferences.getString("light", "0"));
+        contrast=sharedPreferences.getFloat("contrast", 1.7f);
+
+        setContentView(R.layout.activity_camera2_manual);
         Intent intent = new Intent(ACTION_USB_PERMISSION);
         intent.setPackage(Activity_Camera2_Manual.this.getPackageName());
         IntentFilter filter = new IntentFilter();
@@ -179,9 +190,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
         textureView = findViewById(R.id.texture);
         ImageButton settingButton = findViewById(R.id.button_settings);
-        ImageButton settingButtonExpos = findViewById(R.id.button_settings_exposu);
-        countdown= findViewById(R.id.countdownText);
-        countdown.setVisibility(View.INVISIBLE);
+        ImageButton backButton = findViewById(R.id.button_back);
+
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
 
@@ -200,61 +210,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
             }
             else{
-                startCountdown();
+                takePicture(); // Gọi hàm chụp ảnh sau khi đếm ngược xong
                 textureView.setEnabled(false);
             }
         });
 
-        settingButton.setOnClickListener(v -> showSetiingDialog());
-        settingButtonExpos.setOnClickListener(v -> showSetiingDialogExposuTime());
-    }
-
-    private void startCountdown() {
-        // Hiển thị TextView countdown
-        countdown.setVisibility(View.VISIBLE);
-        countdownSound = MediaPlayer.create(this, R.raw.countdown); // Sử dụng tệp âm thanh cho 3 giây
-        shutterSound = MediaPlayer.create(this, R.raw.shutter); // Sử dụng tệp âm thanh cho tiếng chụp
-
-        // Khởi tạo CountDownTimer, đếm ngược từ 3 giây
-        new CountDownTimer(3000, 1000) {
-
-            @Override
-            public void onTick(long millisUntilFinished) {
-                // Cập nhật TextView với số giây còn lại
-                int secondsRemaining = (int) millisUntilFinished / 1000;
-
-                // Phát âm thanh cho mỗi giây đếm ngược
-                switch (secondsRemaining+1) {
-                    case 3:
-                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
-                        countdownSound.start();
-                        countdown.setText("3");
-                        break;
-                    case 2:
-                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
-                        countdownSound.start();
-                        countdown.setText("2");
-                        break;
-                    case 1:
-                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
-                        countdownSound.start();
-                        countdown.setText("1");
-                        break;
-                }
-            }
-
-            @Override
-            public void onFinish() {
-                // Sau khi đếm ngược xong, thực hiện chụp ảnh
-                takePicture(); // Gọi hàm chụp ảnh sau khi đếm ngược xong
-
-                // Phát âm thanh tiếng chụp
-                shutterSound.start();
-
-                // Ẩn TextView countdown sau khi chụp ảnh
-                countdown.setVisibility(View.GONE);
-            }
-        }.start();
+        settingButton.setOnClickListener(v -> showSettingDialog());
+        backButton.setOnClickListener(v -> {
+            Intent intent2 = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class); // Chuyển đến SettingsActivity
+            startActivity(intent2); // Bắt đầu Activity mới
+        });
     }
 
 
@@ -340,44 +305,86 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
         }
     };
-    private void showSetiingDialog() {
-        // Các mức ISO bạn muốn hiển thị
-        final String[] isoLevels = {"100", "200", "300", "400","500", "600", "700", "800","900", "1000", "1100", "1200"};
 
-        // Giả sử ISOvalue là giá trị bạn muốn kiểm tra
+    private void showSettingDialog() {
+        // Các mức ISO và Exposure bạn muốn hiển thị
+        final String[] isoLevels = {"100", "200", "300", "400", "500", "600", "700", "800", "900", "1000", "1100", "1200"};
+        final String[] exposureLevels = {"10000000", "20000000", "30000000", "40000000", "50000000", "60000000", "70000000", "80000000", "90000000", "100000000"};
 
-        // Tạo dialog
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Chọn mức ISO");
+        builder.setTitle("Chọn tùy chọn");
 
-        // Tìm chỉ số của ISOvalue trong mảng isoLevels
+        final String[] options = {"Chọn ISO", "Chọn Phơi Sáng"};
+        builder.setSingleChoiceItems(options, -1, (dialog, which) -> {
+            switch (which) {
+                case 0: // Chọn ISO
+                    showISOSelectionDialog(isoLevels);
+                    break;
+                case 1: // Chọn Phơi Sáng
+                    showExposureSelectionDialog(exposureLevels);
+                    break;
+            }
+            dialog.dismiss(); // Đóng dialog tùy chọn
+        });
+
+        builder.create().show();
+    }
+
+    // Hiển thị dialog chọn ISO
+    private void showISOSelectionDialog(final String[] isoLevels) {
         int initialSelection = -1;
         for (int i = 0; i < isoLevels.length; i++) {
             int isoLevelInt = Integer.parseInt(isoLevels[i]);
             if (isoLevelInt == ISOvalue) {
-                initialSelection = i;  // Lưu vị trí nếu tìm thấy
+                initialSelection = i;
                 break;
             }
         }
 
-        // Thiết lập các item trong dialog
-        builder.setSingleChoiceItems(isoLevels, initialSelection, (dialog, which) -> {
-            // which trả về vị trí của ISO được chọn
-            String selectedISO = isoLevels[which];
-            Toast.makeText(getApplicationContext(), "ISO đã chọn: " + selectedISO, Toast.LENGTH_SHORT).show();
+        new AlertDialog.Builder(this)
+                .setTitle("Chọn mức ISO")
+                .setSingleChoiceItems(isoLevels, initialSelection, (dialog, which) -> {
+                    String selectedISO = isoLevels[which];
+                    Toast.makeText(getApplicationContext(), "ISO đã chọn: " + selectedISO, Toast.LENGTH_SHORT).show();
+                    applyISO(selectedISO);
+                    int selectedISOValue = Integer.parseInt(selectedISO);
+                    updateISO(selectedISOValue);
+                    dialog.dismiss();
+                })
+                .create()
+                .show();
+    }
 
-            // Gọi hàm hoặc xử lý với giá trị ISO được chọn
-            applyISO(selectedISO);
-            int selectedISO2 = Integer.parseInt(selectedISO);
-            updateISO(selectedISO2);
-        });
+    // Hiển thị dialog chọn Exposure
+    private void showExposureSelectionDialog(final String[] exposureLevels) {
+        int initialSelection = -1;
+        for (int i = 0; i < exposureLevels.length; i++) {
+            long exposureLevelLong = Long.parseLong(exposureLevels[i]);
+            if (exposureLevelLong == ExpoValue) {
+                initialSelection = i;
+                break;
+            }
+        }
 
-        // Hiển thị dialog
-        builder.create().show();
+        new AlertDialog.Builder(this)
+                .setTitle("Chọn mức Phơi Sáng")
+                .setSingleChoiceItems(exposureLevels, initialSelection, (dialog, which) -> {
+                    String selectedExpo = exposureLevels[which];
+                    Toast.makeText(getApplicationContext(), "Phơi sáng đã chọn: " + selectedExpo, Toast.LENGTH_SHORT).show();
+                    applyExpose(selectedExpo);
+                    long selectedExposeValue = Long.parseLong(selectedExpo);
+                    updateExpose(selectedExposeValue);
+                    dialog.dismiss();
+                })
+                .create()
+                .show();
     }
 
     private void applyISO(String iso) {
         try {
+            SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
+           SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putString("isovalue", iso).apply();
             ISOvalue = Integer.parseInt(iso); // Cập nhật giá trị mới
             Log.d("ISO_SETTING", "ISO mới được áp dụng: " + ISOvalue);
             Toast.makeText(getApplicationContext(), "ISO hiện tại: " + ISOvalue, Toast.LENGTH_SHORT).show();
@@ -397,46 +404,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.d("CameraISO", "Lo" + e.getMessage());
         }
     }
-
-
-    private void showSetiingDialogExposuTime() {
-        // Các mức ISO bạn muốn hiển thị
-        final String[] ExposureLevels = {"10000000","20000000","30000000","40000000","50000000","60000000","70000000","80000000","90000000","100000000"};
-
-        // Giả sử ISOvalue là giá trị bạn muốn kiểm tra
-
-        // Tạo dialog
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Chọn mức Expos");
-
-        // Tìm chỉ số của ISOvalue trong mảng isoLevels
-        int initialSelection = -1;
-        for (int i = 0; i < ExposureLevels.length; i++) {
-            long ExposureLevel = Long.parseLong(ExposureLevels[i]);
-            if (ExposureLevel == ExpoValue) {
-                initialSelection = i;  // Lưu vị trí nếu tìm thấy
-                break;
-            }
-        }
-
-        // Thiết lập các item trong dialog
-        builder.setSingleChoiceItems(ExposureLevels, initialSelection, (dialog, which) -> {
-            // which trả về vị trí của ISO được chọn
-            String selectedExpo = ExposureLevels[which];
-            Toast.makeText(getApplicationContext(), "Phơi sáng đã chọn: " + selectedExpo, Toast.LENGTH_SHORT).show();
-
-            // Gọi hàm hoặc xử lý với giá trị ISO được chọn
-            applyExpose(selectedExpo);
-            long selectedExpose2 = Long.parseLong(selectedExpo);
-            updateExpose(selectedExpose2);
-        });
-
-        // Hiển thị dialog
-        builder.create().show();
-    }
-
     private void applyExpose(String exp) {
         try {
+            SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putString("epxvalue", exp).apply();
             ExpoValue = Long.parseLong(exp); // Cập nhật giá trị mới
             Log.d("EXP_SETTING", "EXP mới được áp dụng: " + ExpoValue);
             Toast.makeText(getApplicationContext(), "expo hiện tại: " + ExpoValue, Toast.LENGTH_SHORT).show();
@@ -459,10 +431,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private void setPrintDialog2(String path) throws Exception {
         ImageSolve imgSolve=new ImageSolve(Activity_Camera2_Manual.this);
         Bitmap origin = BitmapFactory.decodeFile(path);
-
-
         Print.setPrintResolution(203, 203);
-
         origin=imgSolve.applySharpening2(origin,1f);
         origin = imgSolve.convertToGrayscale(origin);
 
@@ -483,8 +452,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         increase=findViewById(R.id.btnIncrease);
         decrease=findViewById(R.id.btnDecrease);
         numberCount=findViewById(R.id.editTextNumber);
-        seekBarConst.setProgress(17);
-        seekBarLight.setProgress(20);
+         // Lấy giá trị nguyên sau khi nhân với 10
+
+        float progress=contrast * 10;
+        seekBarConst.setProgress((int)progress);
+        seekBarLight.setProgress(light+20);
+
         numberCount.setText(String.valueOf(counterTime));
         decrease.setOnClickListener(v -> {
             counterTime--; // Giảm giá trị
@@ -498,7 +471,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
         @SuppressLint("UseCompatLoadingForDrawables") Drawable drawable = getResources().getDrawable(R.drawable.facebook, null);
 
-// Chuyển drawable thành bitmap
+        // Chuyển drawable thành bitmap
 
         runOnUiThread(() -> {
             Bitmap bitmapimgView = imgSolve.drawableToBitmap(drawable);
@@ -509,50 +482,49 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
 
         Bitmap[] pictureUnder = {null};
-        imageViewSecond.setOnClickListener(v -> {
-            // Ẩn popup khi click vào chính popup
-            runOnUiThread(() -> {
-                try {
-                    PictureSelector.create(Activity_Camera2_Manual.this)
-                            .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
-                            .setImageEngine(GlideEngine.createGlideEngine())  // Use Glide for loading image
-                            .forResult(new OnResultCallbackListener<LocalMedia>() {
-                                @Override
-                                public void onResult(ArrayList<LocalMedia> result) {
-                                    if (result != null && !result.isEmpty()) {
-                                        // Lấy đường dẫn ảnh đầu tiên trong danh sách kết quả
-                                        String imagePath = result.get(0).getPath();
-
-                                        // Dùng Glide để tải ảnh vào ImageView
-                                        Uri uri = Uri.parse(imagePath);
-                                        try {
-                                            InputStream inputStream = getContentResolver().openInputStream(uri); // Mở luồng từ URI
-                                            pictureUnder[0]= BitmapFactory.decodeStream(inputStream); // Decode thành Bitmap
-                                            assert inputStream != null;
-                                            inputStream.close(); // Đóng luồng sau khi sử dụng
-                                        } catch (Exception e) {
-                                            Log.d("CameraEXP", "Error " + e);
-
-                                        }
-                                        pictureUnder[0]=imgSolve.convertToGrayscale(pictureUnder[0]);
-                                        Glide.with(Activity_Camera2_Manual.this)
-                                                .load(pictureUnder[0])  // Đường dẫn ảnh
-                                                .into(imageViewSecond);  // Gắn ảnh vào ImageView
-
-                                    }
-                                }
-
-                                @Override
-                                public void onCancel() {
-                                    // Handle cancel action if needed
-                                }
-                            });
-                } catch (Exception e) {
-                    Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
-                }
-            });
-
-        });
+//        imageViewSecond.setOnClickListener(v -> {
+//            // Ẩn popup khi click vào chính popup
+//
+//                try {
+//                    PictureSelector.create(Activity_Camera2_Manual.this)
+//                            .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
+//                            .setImageEngine(GlideEngine.createGlideEngine())  // Use Glide for loading image
+//                            .forResult(new OnResultCallbackListener<LocalMedia>() {
+//                                @Override
+//                                public void onResult(ArrayList<LocalMedia> result) {
+//                                    if (result != null && !result.isEmpty()) {
+//                                        // Lấy đường dẫn ảnh đầu tiên trong danh sách kết quả
+//                                        String imagePath = result.get(0).getPath();
+//
+//                                        // Dùng Glide để tải ảnh vào ImageView
+//                                        Uri uri = Uri.parse(imagePath);
+//                                        try {
+//                                            InputStream inputStream = getContentResolver().openInputStream(uri); // Mở luồng từ URI
+//                                            pictureUnder[0]= BitmapFactory.decodeStream(inputStream); // Decode thành Bitmap
+//                                            assert inputStream != null;
+//                                            inputStream.close(); // Đóng luồng sau khi sử dụng
+//                                        } catch (Exception e) {
+//                                            Log.d("CameraEXP", "Error " + e);
+//
+//                                        }
+//                                        pictureUnder[0]=imgSolve.convertToGrayscale(pictureUnder[0]);
+//                                        Glide.with(Activity_Camera2_Manual.this)
+//                                                .load(pictureUnder[0])  // Đường dẫn ảnh
+//                                                .into(imageViewSecond);  // Gắn ảnh vào ImageView
+//
+//                                    }
+//                                }
+//
+//                                @Override
+//                                public void onCancel() {
+//                                    // Handle cancel action if needed
+//                                }
+//                            });
+//                } catch (Exception e) {
+//                    Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+//                }
+//
+//        });
 
         runOnUiThread(() -> {
             try {
@@ -565,8 +537,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
 
 
-        int[] lightValue1 = {0}; // Adjust brightness based on SeekBar progress
-        float[] contrastValue = {1.7f};
+        int[] lightValue1 = {light}; // Adjust brightness based on SeekBar progress
+        float[] contrastValue = {contrast};
         Bitmap[] adjustedBitmap2 = {null};
 
 
@@ -590,6 +562,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
 
                     imageViewPreview.setImageBitmap(adjustedBitmap2[0]);  // Show the adjusted image
+                    SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
+                    SharedPreferences.Editor editor = sharedPreferences.edit();
+                    editor.putString("light",  String.valueOf(lightValue1[0])).apply();
+                    light = lightValue1[0]; // Cập nhật giá trị mới
+
                 } catch (Exception e) {
                     Log.e("SeekBarError", "Error adjusting brightness", e);
                 }
@@ -611,6 +588,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp, lightValue1[0]);
                     adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
                     imageViewPreview.setImageBitmap(adjustedBitmap2[0]);
+                    SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
+                    SharedPreferences.Editor editor = sharedPreferences.edit();
+                    editor.putFloat("contrast", contrastValue[0]).apply();
+                    Toast.makeText(getApplicationContext(), "Contrast mới: " + contrast, Toast.LENGTH_SHORT).show();
+
+
+                    contrast = contrastValue[0]; // Cập nhật giá trị mới
                 } catch (Exception e) {
                     Log.e("SeekBarError", "Error adjusting contrast", e);
                 }
@@ -642,7 +626,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 printDrawableImage(pictureUnder[0]);
                 runOnUiThread(() -> {
                     try {
-                        frameLayoutPopup.setVisibility(View.GONE);
+
                         imageViewPreview.setImageBitmap(null);
 
                     } catch (Exception e) {
@@ -651,6 +635,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 });
                 imgSolve.clearCache();
                 counterTime++;
+                runOnUiThread(() -> {
+                    try {
+                        imageViewPreview.setImageResource(R.drawable.imagepreview);
+                    } catch (Exception e) {
+                        Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+                    }
+                });
 
             } catch (Exception e) {
                 Log.e("PrintError", "Exception during printImage call", e);
@@ -660,10 +651,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         btnCancel.setOnClickListener(v -> {
             // Ẩn popup khi click vào chính popup
             try {
-                frameLayoutPopup.setVisibility(View.GONE);
+
                 imageViewPreview.setImageBitmap(null);
                 textureView.setEnabled(true);
                 imgSolve.clearCache();
+                runOnUiThread(() -> {
+                    try {
+                        imageViewPreview.setImageResource(R.drawable.imagepreview);
+                    } catch (Exception e) {
+                        Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+                    }
+                });
 
             } catch (Exception e) {
                 Log.e("PrintError", "Exception during printImage call", e);
@@ -899,19 +897,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             captureBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME,ExpoValue);  // 100ms
             captureBuilder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY);
             captureBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
-
             captureBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, ISOvalue);
-
-
-
-
 
             // Cấu hình orientation cho ảnh, tùy theo hướng của thiết bị
             int rotation = getWindowManager().getDefaultDisplay().getRotation();
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
 
             // Đặt file lưu ảnh (ví dụ: ảnh sẽ lưu vào thư mục Pictures của thiết bị)
-
             ImageReader.OnImageAvailableListener readerListener = reader1 -> {
                 Image image = reader1.acquireLatestImage();
 
@@ -1097,7 +1089,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         // Truyền đường dẫn của tệp cache cho hàm setPrintDialog2
         setPrintDialog2(file.getPath());
     }
-
+    @Override
+    public void onBackPressed() {
+        // Intent để chuyển từ ActivityCamera2Manual về ActivityCamera2
+        Intent intent = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(intent); // Bắt đầu ActivityCamera2
+        finish(); // Đóng ActivityCamera2Manual
+    }
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -1106,5 +1105,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         } catch (Exception ignored) {
         }
     }
+
 
 }

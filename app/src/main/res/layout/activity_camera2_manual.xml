@@ -1,0 +1,365 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context="com.sdk.esc.Activity_Camera2">
+
+    <!-- TextureView cho preview Camera2 -->
+    <TextureView
+        android:id="@+id/texture"
+        android:layout_width="700dp"
+        android:layout_height="match_parent" />
+
+    <!-- FrameLayout hiển thị bên phải TextureView -->
+    <FrameLayout
+        android:id="@+id/frame_layout"
+        android:layout_width="700dp"
+        android:layout_height="match_parent"
+        android:layout_alignParentEnd="true"
+        android:layout_marginStart="16dp"
+        android:background="@color/ps_color_white"
+        android:visibility="visible">
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp"
+            android:gravity="center">
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="Number"
+                android:textColor="@color/black"
+                android:textSize="16sp" />
+
+            <LinearLayout
+                xmlns:android="http://schemas.android.com/apk/res/android"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="16dp"
+                android:gravity="center_vertical">
+
+                <!-- Nút giảm giá trị -->
+                <Button
+                    android:id="@+id/btnDecrease"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="-" />
+
+                <!-- EditText hiển thị giá trị -->
+                <EditText
+                    android:id="@+id/editTextNumber"
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="0"
+                    android:textSize="18sp"
+                    android:gravity="center"
+                    android:editable="false"/>
+
+                <!-- Nút tăng giá trị -->
+                <Button
+                    android:id="@+id/btnIncrease"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="+" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="300dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginLeft="16dp"
+                android:gravity="center_vertical"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="16sp"
+                    android:textColor="@color/black"
+                    android:text="@string/activity_qrcode_size" />
+
+                <RadioGroup
+                    android:id="@+id/rg_inch"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <RadioButton
+                        android:id="@+id/rb_inch3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:textColor="@color/black"
+                        android:checked="true"
+                        android:textSize="16sp"
+                        android:text="576" />
+
+                    <RadioButton
+                        android:id="@+id/rb_inch2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:layout_marginLeft="4dp"
+                        android:textColor="@color/black"
+                        android:textSize="16sp"
+                        android:text="384" />
+
+                    <RadioButton
+                        android:id="@+id/rb_inch4"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:layout_marginLeft="4dp"
+                        android:textColor="@color/black"
+                        android:textSize="16sp"
+                        android:text="832" />
+
+                    <RadioButton
+                        android:id="@+id/rb_original"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:layout_marginLeft="4dp"
+                        android:textColor="@color/black"
+                        android:textSize="16sp"
+                        android:text="@string/activity_main_original" />
+                </RadioGroup>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginLeft="16dp"
+                android:gravity="center_vertical"
+                android:orientation="vertical">
+
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="16dp"
+                android:layout_marginBottom="16dp"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textColor="@color/black"
+                    android:text="@string/activity_page_mode_print_direction" />
+
+                <RadioGroup
+                    android:id="@+id/rg_dpi4"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <RadioButton
+                        android:id="@+id/rb_zero"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:textColor="@color/black"
+                        android:checked="true"
+                        android:text="0" />
+
+                    <RadioButton
+                        android:id="@+id/rb_90"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:layout_marginLeft="8dp"
+                        android:textColor="@color/black"
+                        android:text="90" />
+                </RadioGroup>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:layout_marginLeft="16dp"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textColor="@color/black"
+                    android:text="Light"></TextView>
+                <RadioGroup
+                    android:id="@+id/rg_gray"
+                    android:orientation="horizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <RadioButton
+                        android:id="@+id/rb_shake"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:buttonTint="@color/colorPrimary"
+                        android:textColor="@color/black"
+                        android:textSize="12dp"
+                        android:checked="true"
+                        android:text="@string/activity_main_shake" />
+                    <RadioButton
+                        android:id="@+id/rb_gather"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="12dp"
+                        android:buttonTint="@color/colorPrimary"
+                        android:layout_marginLeft="4dp"
+                        android:textColor="@color/black"
+                        android:text="@string/activity_main_gather" />
+                </RadioGroup>
+
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textColor="@color/black"
+                    android:layout_marginLeft="16dp"
+                    android:text="@string/activity_main_light" />
+
+                <SeekBar
+                    android:id="@+id/seekbar_light"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="40"
+                    android:progress="20" />
+
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="16dp"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="18sp"
+                    android:textColor="@color/black"
+                    android:layout_marginLeft="16dp"
+                    android:text="@string/constrast" />
+
+                <!-- TextView to display the value of the SeekBar -->
+                <SeekBar
+                    android:id="@+id/seekbar_constrast"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="60"
+                    android:progress="17" />
+
+
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/imageViewPreview"
+                android:layout_width="320dp"
+            android:layout_height="250dp"
+            android:layout_marginTop="16dp"
+            android:contentDescription="Photo Preview"
+
+                android:src="@drawable/imagepreview" />
+
+            <ImageView
+                android:id="@+id/imageViewSecond"
+                android:layout_width="match_parent"
+                android:layout_height="125dp"
+                android:layout_marginTop="16dp"
+                android:scaleType="centerInside"
+                android:contentDescription="Second Image"
+                android:src="@drawable/facebook" />
+
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical">
+
+                <Button
+                    android:id="@+id/btnCancel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Cancel" />
+
+                <!-- Button Print -->
+                <Button
+                    android:id="@+id/btnPrint"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Print" />
+            </LinearLayout>
+
+        </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Button thực hiện việc cài đặt -->
+    <ImageButton
+        android:id="@+id/button_settings"
+        android:layout_width="60dp"
+        android:layout_height="60dp"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:layout_margin="16dp"
+        android:background="@null"
+        android:contentDescription="@string/settings"
+        android:src="@drawable/btn_setting" />
+
+    <!-- Button quay lại -->
+    <ImageButton
+        android:id="@+id/button_back"
+        android:layout_width="60dp"
+        android:layout_height="60dp"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:layout_margin="16dp"
+        android:background="@null"
+        android:contentDescription="@string/settings"
+        android:src="@drawable/back"
+        android:scaleType="centerCrop"
+        app:tint="#FFFFFF" />
+
+</RelativeLayout>

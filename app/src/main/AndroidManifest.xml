@@ -56,6 +56,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".Activity_Camera2_Manual"
+            android:exported="true" />
+
 
 
     </application>
