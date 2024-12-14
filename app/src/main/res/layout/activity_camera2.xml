@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context="com.sdk.esc.Activity_Camera2">
+    <!-- TextureView cho việc preview Camera2 -->
+
+    <!-- Button thực hiện việc chụp ảnh -->
+
+    <TextureView
+        android:id="@+id/texture"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ImageButton
+        android:id="@+id/button_setting_change"
+        android:layout_width="60dp"
+        android:layout_height="60dp"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:layout_margin="16dp"
+        android:background="@null"
+        android:contentDescription="@string/settings"
+        android:src="@drawable/btn_setting" />
+
+    <TextView
+        android:id="@+id/countdownText"
+        android:text="3"
+        android:textSize="300sp"
+        android:textColor="#B0B0B0"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true" />
+
+    <FrameLayout
+        android:id="@+id/frame_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@color/ps_color_white"
+        android:visibility="gone"
+        android:layout_centerInParent="true"
+        >
+
+        <!-- Thêm nội dung tùy chỉnh vào đây -->
+    </FrameLayout>
+</RelativeLayout>
