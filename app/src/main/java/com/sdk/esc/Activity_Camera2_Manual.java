@@ -13,6 +13,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
@@ -34,7 +36,6 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.media.Image;
 import android.media.ImageReader;
-import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -42,6 +43,7 @@ import android.os.HandlerThread;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
+import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -50,8 +52,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
-import android.widget.RadioButton;
-import android.widget.SeekBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -86,10 +87,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
     ImageSolve imgSolve;
-    private MediaPlayer countdownSound;
-    private MediaPlayer shutterSound;
     private int counterTime=1;
-    private boolean previewNull=true;
     LocalDateTime current;
     private CameraDevice cameraDevice;
     private CaptureRequest.Builder captureRequestBuilder;
@@ -103,14 +101,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private TextureView textureView;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
-    private  int light=0;
-    private  float contrast= 1.7f;
     private final int PRINT_FAILURE = 0;
-    private final int PRINT_THREE_INCH = 650;
-    private final int PRINT_TWO_INCH = 384;
-    private final int PRINT_FOUR_INCH = 832;
+    private final int PRINT_THREE_INCH = 576;
     private final int BITMAP_SHAKE = 1;
-    private final int BITMAP_GATHER = 2;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_STORAGE_PERMISSION = 201;
     private UsbDevice device = null;
@@ -125,22 +118,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
-    private String cameraId;
     protected CameraCaptureSession cameraCaptureSessions;
     private Size imageDimension;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
     FrameLayout frameLayoutPopup;
-    RadioButton rbShake ;
     Button btnPrint;
     Button btnCancel;
-    RadioButton rbInch3 ;
-    RadioButton rbInch2;
-    RadioButton rbInch4;
-    RadioButton rbZero ;
     ImageView imageViewPreview ;
-    SeekBar seekBarLight ;
-    SeekBar seekBarConst;
+
     ImageView imageViewSecond;
     boolean havingUsb=false;
     Button decrease;
@@ -152,16 +138,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera2_manual);
         SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
-        seekBarConst=findViewById(R.id.seekbar_constrast);
-        seekBarLight=findViewById(R.id.seekbar_light);
-        seekBarConst.setEnabled(false);
-        seekBarLight.setEnabled(false);
+
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
-        light=Integer.parseInt(sharedPreferences.getString("light", "0"));
-        contrast=sharedPreferences.getFloat("contrast", 1.7f);
+     //   light=Integer.parseInt(sharedPreferences.getString("light", "10"));
+      //  contrast=sharedPreferences.getFloat("contrast", 1.3f);
         imgSolve = new ImageSolve(this);
 
         btnPrint.setEnabled(false);
@@ -203,8 +186,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         textureView.setOnClickListener(v -> {
             btnPrint.setEnabled(true);
             btnCancel.setEnabled(true);
-            seekBarConst.setEnabled(true);
-            seekBarLight.setEnabled(true);
+
             if (!Print.IsOpened()) {
                 Toast.makeText(Activity_Camera2_Manual.this, "Please connect to Printer", Toast.LENGTH_SHORT).show();
                 try {
@@ -315,83 +297,224 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     };
 
     private void showSettingDialog() {
-        // Các mức ISO và Exposure bạn muốn hiển thị
-        final String[] isoLevels = {"100", "200", "300", "400", "500", "600", "700", "800", "900", "1000", "1100", "1200"};
-        final String[] exposureLevels = {"10000000", "20000000", "30000000", "40000000", "50000000", "60000000", "70000000", "80000000", "90000000", "100000000"};
+        LayoutInflater inflater = getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.dialog_2_columns_layout, null);
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Chọn tùy chọn");
+        builder.setView(dialogView);
 
-        final String[] options = {"Chọn ISO", "Chọn Phơi Sáng"};
-        builder.setSingleChoiceItems(options, -1, (dialog, which) -> {
-            switch (which) {
-                case 0: // Chọn ISO
-                    showISOSelectionDialog(isoLevels);
-                    break;
-                case 1: // Chọn Phơi Sáng
-                    showExposureSelectionDialog(exposureLevels);
-                    break;
-            }
-            dialog.dismiss(); // Đóng dialog tùy chọn
+        AlertDialog dialog = builder.create();
+
+        // Lấy các thành phần từ layout dialog
+        TextView isoText1 = dialogView.findViewById(R.id.isoText1);
+        TextView isoText2 = dialogView.findViewById(R.id.isoText2);
+        TextView isoText3 = dialogView.findViewById(R.id.isoText3);
+        TextView isoText4 = dialogView.findViewById(R.id.isoText4);
+        TextView isoText5 = dialogView.findViewById(R.id.isoText5);
+        TextView isoText6 = dialogView.findViewById(R.id.isoText6);
+        TextView isoText7 = dialogView.findViewById(R.id.isoText7);
+
+        TextView exposureText1 = dialogView.findViewById(R.id.exposureText1);
+        TextView exposureText2 = dialogView.findViewById(R.id.exposureText2);
+        TextView exposureText3 = dialogView.findViewById(R.id.exposureText3);
+        TextView exposureText4 = dialogView.findViewById(R.id.exposureText4);
+        TextView exposureText5 = dialogView.findViewById(R.id.exposureText5);
+        TextView exposureText6 = dialogView.findViewById(R.id.exposureText6);
+        TextView exposureText7 = dialogView.findViewById(R.id.exposureText7);
+
+        // Các mức ISO và Exposure
+        final String[] isoLevels = { "200", "300", "400", "500", "600", "700", "800" };
+        final String[] exposureLevelsDisplay = { "0.2s", "0.3s", "0.4s", "0.5s", "0.6s", "0.7s", "0.8s" };
+        final String[] exposureLevels = { "20000000", "30000000", "40000000", "50000000", "60000000", "70000000", "80000000" };
+
+        // Lấy isovalue và exposurevalue từ đâu đó
+        String isovalue = String.valueOf(ISOvalue);     // Thay vào giá trị của isovalue
+        String exposurevalue = String.valueOf(ExpoValue); // Thay vào giá trị của exposurevalue
+
+        // Hiển thị danh sách cột bên trái (ISO) và cột bên phải (Exposure)
+        isoText1.setText(isoLevels[0]);
+        exposureText1.setText(exposureLevelsDisplay[0]);
+        if (isoLevels[0].equals(isovalue)) {
+            isoText1.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[0].equals(exposurevalue)) {
+            exposureText1.setBackgroundColor(Color.GRAY);
+        }
+
+        isoText2.setText(isoLevels[1]);
+        exposureText2.setText(exposureLevelsDisplay[1]);
+        if (isoLevels[1].equals(isovalue)) {
+            isoText2.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[1].equals(exposurevalue)) {
+            exposureText2.setBackgroundColor(Color.GRAY);
+        }
+
+        isoText3.setText(isoLevels[2]);
+        exposureText3.setText(exposureLevelsDisplay[2]);
+        if (isoLevels[2].equals(isovalue)) {
+            isoText3.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[2].equals(exposurevalue)) {
+            exposureText3.setBackgroundColor(Color.GRAY);
+        }
+
+        isoText4.setText(isoLevels[3]);
+        exposureText4.setText(exposureLevelsDisplay[3]);
+        if (isoLevels[3].equals(isovalue)) {
+            isoText4.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[3].equals(exposurevalue)) {
+            exposureText4.setBackgroundColor(Color.GRAY);
+        }
+
+        isoText5.setText(isoLevels[4]);
+        exposureText5.setText(exposureLevelsDisplay[4]);
+        if (isoLevels[4].equals(isovalue)) {
+            isoText5.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[4].equals(exposurevalue)) {
+            exposureText5.setBackgroundColor(Color.GRAY);
+        }
+
+        isoText6.setText(isoLevels[5]);
+        exposureText6.setText(exposureLevelsDisplay[5]);
+        if (isoLevels[5].equals(isovalue)) {
+            isoText6.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[5].equals(exposurevalue)) {
+            exposureText6.setBackgroundColor(Color.GRAY);
+        }
+
+        isoText7.setText(isoLevels[6]);
+        exposureText7.setText(exposureLevelsDisplay[6]);
+        if (isoLevels[6].equals(isovalue)) {
+            isoText7.setBackgroundColor(Color.GRAY);
+        }
+        if (exposureLevels[6].equals(exposurevalue)) {
+            exposureText7.setBackgroundColor(Color.GRAY);
+        }
+
+        // Set click listeners
+        isoText1.setOnClickListener(v -> {
+            applyISO(isoLevels[0]);
+            updateISO(isoLevels[0]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
         });
 
-        builder.create().show();
+        isoText2.setOnClickListener(v -> {
+            applyISO(isoLevels[1]);
+            updateISO(isoLevels[1]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        isoText3.setOnClickListener(v -> {
+            applyISO(isoLevels[2]);
+            updateISO(isoLevels[2]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        isoText4.setOnClickListener(v -> {
+            applyISO(isoLevels[3]);
+            updateISO(isoLevels[3]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        isoText5.setOnClickListener(v -> {
+            applyISO(isoLevels[4]);
+            updateISO(isoLevels[4]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        isoText6.setOnClickListener(v -> {
+            applyISO(isoLevels[5]);
+            updateISO(isoLevels[5]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        isoText7.setOnClickListener(v -> {
+            applyISO(isoLevels[6]);
+            updateISO(isoLevels[6]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        exposureText1.setOnClickListener(v -> {
+            applyExpose(exposureLevels[0]);
+            updateExposure(exposureLevels[0]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+        });
+
+        exposureText2.setOnClickListener(v -> {
+            applyExpose(exposureLevels[1]);
+            updateExposure(exposureLevels[1]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+
+        });
+
+        exposureText3.setOnClickListener(v -> {
+            applyExpose(exposureLevels[2]);
+            updateExposure(exposureLevels[2]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+
+        });
+
+        exposureText4.setOnClickListener(v -> {
+            applyExpose(exposureLevels[3]);
+            updateExposure(exposureLevels[3]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+
+        });
+
+        exposureText5.setOnClickListener(v -> {
+            applyExpose(exposureLevels[4]);
+            updateExposure(exposureLevels[4]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+
+        });
+
+        exposureText6.setOnClickListener(v -> {
+            applyExpose(exposureLevels[5]);
+            updateExposure(exposureLevels[5]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+
+        });
+
+        exposureText7.setOnClickListener(v -> {
+            applyExpose(exposureLevels[6]);
+            updateExposure(exposureLevels[6]);
+            dialog.dismiss();
+            reloadDialog(); // Reload lại dialog
+
+        });
+        builder.setPositiveButton("OK", (dialog1, which) -> dialog1.dismiss());
+        dialog.show();
+    }
+
+
+    private void reloadDialog() {
+        showSettingDialog(); // Gọi lại showSettingDialog() để load lại dialog
     }
 
     // Hiển thị dialog chọn ISO
-    private void showISOSelectionDialog(final String[] isoLevels) {
-        int initialSelection = -1;
-        for (int i = 0; i < isoLevels.length; i++) {
-            int isoLevelInt = Integer.parseInt(isoLevels[i]);
-            if (isoLevelInt == ISOvalue) {
-                initialSelection = i;
-                break;
-            }
-        }
 
-        new AlertDialog.Builder(this)
-                .setTitle("Chọn mức ISO")
-                .setSingleChoiceItems(isoLevels, initialSelection, (dialog, which) -> {
-                    String selectedISO = isoLevels[which];
-                    Toast.makeText(getApplicationContext(), "ISO đã chọn: " + selectedISO, Toast.LENGTH_SHORT).show();
-                    applyISO(selectedISO);
-                    int selectedISOValue = Integer.parseInt(selectedISO);
-                    updateISO(selectedISOValue);
-                    dialog.dismiss();
-                })
-                .create()
-                .show();
-    }
-
-    // Hiển thị dialog chọn Exposure
-    private void showExposureSelectionDialog(final String[] exposureLevels) {
-        int initialSelection = -1;
-        for (int i = 0; i < exposureLevels.length; i++) {
-            long exposureLevelLong = Long.parseLong(exposureLevels[i]);
-            if (exposureLevelLong == ExpoValue) {
-                initialSelection = i;
-                break;
-            }
-        }
-
-        new AlertDialog.Builder(this)
-                .setTitle("Chọn mức Phơi Sáng")
-                .setSingleChoiceItems(exposureLevels, initialSelection, (dialog, which) -> {
-                    String selectedExpo = exposureLevels[which];
-                    Toast.makeText(getApplicationContext(), "Phơi sáng đã chọn: " + selectedExpo, Toast.LENGTH_SHORT).show();
-                    applyExpose(selectedExpo);
-                    long selectedExposeValue = Long.parseLong(selectedExpo);
-                    updateExpose(selectedExposeValue);
-                    dialog.dismiss();
-                })
-                .create()
-                .show();
-    }
 
     private void applyISO(String iso) {
         try {
             SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
-           SharedPreferences.Editor editor = sharedPreferences.edit();
+            SharedPreferences.Editor editor = sharedPreferences.edit();
             editor.putString("isovalue", iso).apply();
             ISOvalue = Integer.parseInt(iso); // Cập nhật giá trị mới
             Log.d("ISO_SETTING", "ISO mới được áp dụng: " + ISOvalue);
@@ -400,10 +523,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.e("ISO_SETTING", "Không thể chuyển đổi giá trị ISO: " + iso);
         }
     }
-    private void updateISO(int newISO) {
+    private void updateISO(String newISO) {
         try {
             // Cập nhật giá trị ISO
-            captureRequestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, newISO);
+            captureRequestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, Integer.parseInt(newISO));
 
             // Áp dụng request mới
             cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
@@ -424,10 +547,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.e("EXP_SETTING", "Không thể chuyển đổi giá trị expo: " + exp);
         }
     }
-    private void updateExpose(long exp) {
+    private void updateExposure(String exp) {
         try {
             // Cập nhật giá trị ISO
-            captureRequestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exp);
+            captureRequestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, Long.parseLong(exp));
 
             // Áp dụng request mới
             cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
@@ -436,9 +559,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.d("CameraEXP", "Error " + e);
         }
     }
-    private void setPrintDialog2(String path) throws Exception {
+    private void setPrintDialog2(String path) {
 
-        previewNull=false;
         Bitmap origin = BitmapFactory.decodeFile(path);
 
         int dpi = origin.getDensity();
@@ -455,7 +577,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         // CLAHE 적용
         Mat matCLAHE = new Mat();
-        CLAHE clahe = Imgproc.createCLAHE(0.6, new org.opencv.core.Size(3, 3));
+        CLAHE clahe = Imgproc.createCLAHE(0.4, new org.opencv.core.Size(3, 3));
         clahe.apply(matGray, matCLAHE);
 
 // *가우시안 블러 적용*
@@ -470,27 +592,20 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         Bitmap resizedBitmap = imgSolve.resizeBitmapWithGPUImage(Activity_Camera2_Manual.this, processedBitmap, widthPixels);
 
-        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 0.9f));
+        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
         bmp.get().setDensity(dpi);
         frameLayoutPopup=findViewById(R.id.frame_layout);
-        rbShake = findViewById(R.id.rb_shake);
+
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
-        rbInch3 = findViewById(R.id.rb_inch3);
-        rbInch2 = findViewById(R.id.rb_inch2);
-        rbInch4 = findViewById(R.id.rb_inch4);
-        rbZero = findViewById(R.id.rb_zero);
+
         imageViewPreview = findViewById(R.id.imageViewPreview);
-        seekBarLight = findViewById(R.id.seekbar_light);
-        seekBarConst = findViewById(R.id.seekbar_constrast);
+
         imageViewSecond = findViewById(R.id.imageViewSecond);
         increase=findViewById(R.id.btnIncrease);
         decrease=findViewById(R.id.btnDecrease);
         numberCount=findViewById(R.id.editTextNumber);
-         // Lấy giá trị nguyên sau khi nhân với 10
-        float progress=contrast * 10;
-        seekBarConst.setProgress((int)progress);
-        seekBarLight.setProgress(light+20);
+        // Lấy giá trị nguyên sau khi nhân với 10
 
         numberCount.setText(String.valueOf(counterTime));
         decrease.setOnClickListener(v -> {
@@ -570,7 +685,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
         });
 
-
+        float contrast = 1.4f;
+        int light = 15;
         int[] lightValue1 = {light}; // Adjust brightness based on SeekBar progress
         float[] contrastValue = {contrast};
         Bitmap[] adjustedBitmap2 = {null};
@@ -579,86 +695,66 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
+        @SuppressLint("UseCompatLoadingForDrawables") Drawable noel = getResources().getDrawable(R.drawable.noel6, null);
+        Bitmap bitmapFrame = imgSolve.drawableToBitmap(noel);
+        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
+        bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
+// Bitmap đã xử lý (adjustedBitmap2[0])
+        Bitmap processedBitmap2 = adjustedBitmap2[0];
+        processedBitmap2=imgSolve.cropLeftRightToSquare(processedBitmap2);
+// Tạo Bitmap mới để kết hợp
+        // Tính toán kích thước mới cho processedBitmap2
+        int newWidth = (int) (processedBitmap2.getWidth()*1.3);
+        int newHeight = (int) (processedBitmap2.getHeight()*1.3);
+
+// Phóng to processedBitmap2
+        Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth, newHeight, true);
+
+        int compensation=0;
+        // compensation=65 android 14
+// Tạo Bitmap mới để kết hợp
+        Bitmap combinedBitmap = Bitmap.createBitmap(
+                bitmapFrame.getWidth()+compensation,
+                bitmapFrame.getHeight()+compensation,
+                Bitmap.Config.ARGB_8888
+        );
+
+// Vẽ bitmapFrame lên Canvas
+        Canvas canvas = new Canvas(combinedBitmap);
+        canvas.drawBitmap(bitmapFrame, 0, 0, null);
+
+// Tính toán xOffset và yOffset để căn giữa enlargedBitmap bên trong bitmapFrame
+        int xOffset = (bitmapFrame.getWidth() - enlargedBitmap.getWidth()) / 2+compensation;
+        int yOffset = (bitmapFrame.getHeight() - enlargedBitmap.getHeight()) / 2+compensation;
+
+// Vẽ enlargedBitmap đã căn giữa vào bên trong bitmapFrame
+        canvas.drawBitmap(enlargedBitmap, xOffset, yOffset, null);
+
+// Đặt mật độ cho combinedBitmap giống bitmapFrame
+        combinedBitmap.setDensity(bitmapFrame.getDensity());
+
         runOnUiThread(() -> {
             try {
-                imageViewPreview.setImageBitmap(adjustedBitmap2[0]);
+                imageViewPreview.setImageBitmap(combinedBitmap);
             } catch (Exception e) {
                 Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
             }
-        });
-        seekBarLight.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                try {
-                    lightValue1[0] = progress - 20; // Adjust brightness based on SeekBar progress
-
-                    adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
-                    adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
-
-                    imageViewPreview.setImageBitmap(adjustedBitmap2[0]);  // Show the adjusted image
-                    SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
-                    SharedPreferences.Editor editor = sharedPreferences.edit();
-                    editor.putString("light",  String.valueOf(lightValue1[0])).apply();
-                    light = lightValue1[0]; // Cập nhật giá trị mới
-
-                } catch (Exception e) {
-                    Log.e("SeekBarError", "Error adjusting brightness", e);
-                }
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {}
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {}
-        });
-
-        seekBarConst.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                try {
-                    // Convert SeekBar value to contrast factor (1.0 is default, higher value increases contrast)
-                    contrastValue[0] = (float) progress / 10.0f;
-                    adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
-                    adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
-                    imageViewPreview.setImageBitmap(adjustedBitmap2[0]);
-                    SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
-                    SharedPreferences.Editor editor = sharedPreferences.edit();
-                    editor.putFloat("contrast", contrastValue[0]).apply();
-                    Toast.makeText(getApplicationContext(), "Contrast mới: " + contrast, Toast.LENGTH_SHORT).show();
-
-
-                    contrast = contrastValue[0]; // Cập nhật giá trị mới
-                } catch (Exception e) {
-                    Log.e("SeekBarError", "Error adjusting contrast", e);
-                }
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {}
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
 
         btnPrint.setOnClickListener(v -> {
             // Ẩn popup khi click vào chính popup
             try {
-                new Handler().postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
-                    }
+                new Handler().postDelayed(() -> {
+                    textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
                 }, 1500);
                 //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
                 onClickPrint();
                 printImage(
-                        adjustedBitmap2[0],
+                        combinedBitmap,
                         10,
-                        rbInch3.isChecked() ? PRINT_THREE_INCH : rbInch2.isChecked() ? PRINT_TWO_INCH : rbInch4.isChecked() ? PRINT_FOUR_INCH : 0,
-                        !rbZero.isChecked(),
-                        rbShake.isChecked() ? BITMAP_SHAKE : BITMAP_GATHER
+                        PRINT_THREE_INCH , false,
+                        BITMAP_SHAKE
                 );
 
 
@@ -680,8 +776,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
             btnPrint.setEnabled(false);
             btnCancel.setEnabled(false);
-            seekBarConst.setEnabled(false);
-            seekBarLight.setEnabled(false);
+
             adjustedBitmap2[0]=null;
             bmp.set(null);
 
@@ -692,11 +787,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             try {
 
 
-                new Handler().postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
-                    }
+                new Handler().postDelayed(() -> {
+                    textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
                 }, 1500);
                 imgSolve.clearCache();
                 runOnUiThread(() -> {
@@ -712,8 +804,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
             btnPrint.setEnabled(false);
             btnCancel.setEnabled(false);
-            seekBarConst.setEnabled(false);
-            seekBarLight.setEnabled(false);
+
             adjustedBitmap2[0]=null;
             bmp.set(null);
 
@@ -785,7 +876,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             int iAttribute;
             int iTextSize = 0;
 
-           iAttribute =(16 | 32 | 2);
+            iAttribute =(16 | 32 | 2);
 
             PublicAction PAct = new PublicAction(Activity_Camera2_Manual.this);
 
@@ -863,6 +954,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
             textureView.setTransform(matrix);
         }
+
+
         @Override
         public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
             return false;
@@ -971,6 +1064,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 }
 
             };
+
+
             // Đặt listener cho ImageReader
             reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
 
@@ -1059,7 +1154,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         Log.e(TAG, "is camera open");
         try {
-            cameraId = manager.getCameraIdList()[1];
+            String cameraId = manager.getCameraIdList()[1];
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             assert map != null;

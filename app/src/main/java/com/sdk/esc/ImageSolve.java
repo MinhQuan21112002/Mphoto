@@ -16,6 +16,9 @@ import android.renderscript.ScriptIntrinsicBlur;
 import android.renderscript.ScriptIntrinsicConvolve3x3;
 import android.view.View;
 
+import org.opencv.android.Utils;
+import org.opencv.core.Mat;
+
 import java.io.File;
 import java.util.Arrays;
 import java.util.Objects;
@@ -126,6 +129,27 @@ public class ImageSolve {
     public ImageSolve(Context context) {
         this.context = context;
     }
+    public Bitmap cropLeftRightToSquare(Bitmap bitmap) {
+        // Lấy kích thước của Bitmap gốc
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+
+        // Đảm bảo rằng chiều rộng lớn hơn chiều cao (để có thể cắt thành hình vuông)
+        if (width > height) {
+            // Xác định chiều dài cạnh hình vuông
+            int squareSize = height;
+
+            // Tính toán phần thừa cần cắt đều hai bên
+            int xOffset = (width - squareSize) / 2;
+
+            // Cắt hình vuông từ giữa
+            return Bitmap.createBitmap(bitmap, xOffset, 0, squareSize, height);
+        } else {
+            // Nếu chiều rộng nhỏ hơn hoặc bằng chiều cao, trả về Bitmap gốc
+            return bitmap;
+        }
+    }
+
     public Bitmap resizeBitmapMaintainAspect(Bitmap originalBitmap, int newWidth) {
         // Tính toán chiều cao mới giữ tỷ lệ ảnh
         int originalWidth = originalBitmap.getWidth();
@@ -187,7 +211,40 @@ public class ImageSolve {
         return outputBitmap;
     }
 
+    public static Bitmap adjustContrast(Bitmap inputBitmap, double alpha) {
+        // Chuyển Bitmap sang Mat
+        Mat mat = new Mat();
+        Utils.bitmapToMat(inputBitmap, mat);
 
+        // Tạo Mat mới để lưu kết quả
+        Mat adjustedMat = new Mat();
+
+        // Áp dụng thay đổi contrast
+        mat.convertTo(adjustedMat, -1, alpha, 0);
+
+        // Chuyển Mat kết quả về Bitmap
+        Bitmap outputBitmap = Bitmap.createBitmap(adjustedMat.cols(), adjustedMat.rows(), inputBitmap.getConfig());
+        Utils.matToBitmap(adjustedMat, outputBitmap);
+
+        return outputBitmap;
+    }
+    public static Bitmap adjustBrightness(Bitmap inputBitmap, double beta) {
+        // Chuyển Bitmap sang Mat
+        Mat mat = new Mat();
+        Utils.bitmapToMat(inputBitmap, mat);
+
+        // Tạo Mat mới để lưu kết quả
+        Mat adjustedMat = new Mat();
+
+        // Áp dụng thay đổi brightness
+        mat.convertTo(adjustedMat, -1, 1, beta);
+
+        // Chuyển Mat kết quả về Bitmap
+        Bitmap outputBitmap = Bitmap.createBitmap(adjustedMat.cols(), adjustedMat.rows(), inputBitmap.getConfig());
+        Utils.matToBitmap(adjustedMat, outputBitmap);
+
+        return outputBitmap;
+    }
     public Bitmap adjustBrightness(Bitmap original, int brightness) {
         ColorMatrix matrix = new ColorMatrix();
         matrix.set(new float[]{

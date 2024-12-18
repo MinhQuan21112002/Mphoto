@@ -1,7 +1,6 @@
 package com.sdk.esc;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
@@ -33,7 +32,6 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.media.Image;
 import android.media.ImageReader;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CountDownTimer;
@@ -44,27 +42,15 @@ import android.util.SparseIntArray;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.RadioButton;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
-import com.bumptech.glide.Glide;
-import com.luck.picture.lib.basic.PictureSelector;
-import com.luck.picture.lib.config.SelectMimeType;
-import com.luck.picture.lib.entity.LocalMedia;
-import com.luck.picture.lib.interfaces.OnResultCallbackListener;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -105,14 +91,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     private TextureView textureView;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
-    private  int light=0;
-    private  float contrast= 1.7f;
     private final int PRINT_FAILURE = 0;
-    private final int PRINT_THREE_INCH = 650;
-    private final int PRINT_TWO_INCH = 384;
-    private final int PRINT_FOUR_INCH = 832;
-    private final int BITMAP_SHAKE = 1;
-    private final int BITMAP_GATHER = 2;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_STORAGE_PERMISSION = 201;
     private UsbDevice device = null;
@@ -131,23 +110,8 @@ public class Activity_Camera2 extends AppCompatActivity {
     private android.util.Size imageDimension;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
-    FrameLayout frameLayoutPopup;
-    RadioButton rbShake ;
-    Button btnPrint;
-    Button btnCancel;
-    RadioButton rbInch3 ;
-    RadioButton rbInch2;
-    RadioButton rbInch4;
-    RadioButton rbZero ;
-    ImageView imageViewPreview ;
-    SeekBar seekBarLight ;
-    SeekBar seekBarConst;
-    ImageView imageViewSecond;
     TextView countdown;
     boolean havingUsb=false;
-    Button decrease;
-    Button increase;
-    EditText numberCount;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -167,8 +131,8 @@ public class Activity_Camera2 extends AppCompatActivity {
         SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
-        light=Integer.parseInt(sharedPreferences.getString("light", "10"));
-        contrast=sharedPreferences.getFloat("contrast", 1.7f);
+      //  light=Integer.parseInt(sharedPreferences.getString("light", "20"));
+     //   contrast=sharedPreferences.getFloat("contrast", 1.7f);
 
         setContentView(R.layout.activity_camera2);
         Intent intent = new Intent(ACTION_USB_PERMISSION);
@@ -363,7 +327,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             }
         }
     };
-    private void Print(String path) throws Exception {
+    private void Print(String path) {
         Bitmap origin = BitmapFactory.decodeFile(path);
 
         int dpi = origin.getDensity();
@@ -404,8 +368,9 @@ public class Activity_Camera2 extends AppCompatActivity {
         bmp.setDensity(dpi);
 
 
-
+        int light = 15;
         int[] lightValue1 = {light}; // Adjust brightness based on SeekBar progress
+        float contrast = 1.4f;
         float[] contrastValue = {contrast};
         Bitmap[] adjustedBitmap2 = {null};
 
@@ -416,11 +381,11 @@ public class Activity_Camera2 extends AppCompatActivity {
 
 
 
-        runOnUiThread(() -> {
-            textureView.setEnabled(true);
-        });
+        runOnUiThread(() -> textureView.setEnabled(true));
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
         onClickPrint();
+        int PRINT_THREE_INCH = 672;
+        int BITMAP_SHAKE = 1;
         printImage(
                 adjustedBitmap2[0],
                 10,
