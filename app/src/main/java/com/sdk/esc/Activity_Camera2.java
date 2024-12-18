@@ -332,7 +332,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         int dpi = origin.getDensity();
         if (dpi == 0) dpi = 203; // 기본 DPI 설정
-
+        origin = imgSolve.cropLeftAndRight(origin, 15);
         // Bitmap을 Mat 객체로 변환
         origin = origin.copy(Bitmap.Config.ARGB_8888, true); // Bitmap 포맷을 ARGB_8888로 변환
         Mat matOriginal = new Mat();
@@ -384,7 +384,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         runOnUiThread(() -> textureView.setEnabled(true));
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
         onClickPrint();
-        int PRINT_THREE_INCH = 672;
+        int PRINT_THREE_INCH = 576;
         int BITMAP_SHAKE = 1;
         printImage(
                 adjustedBitmap2[0],

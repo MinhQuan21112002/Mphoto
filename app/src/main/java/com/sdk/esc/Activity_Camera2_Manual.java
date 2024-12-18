@@ -710,8 +710,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 // Phóng to processedBitmap2
         Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth, newHeight, true);
 
-        int compensation=0;
-        // compensation=65 android 14
+        int compensation=65;
+        // compensation=65 android 14, compensation=0 android 11
 // Tạo Bitmap mới để kết hợp
         Bitmap combinedBitmap = Bitmap.createBitmap(
                 bitmapFrame.getWidth()+compensation,

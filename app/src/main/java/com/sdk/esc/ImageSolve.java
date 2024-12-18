@@ -159,6 +159,22 @@ public class ImageSolve {
         // Sử dụng createScaledBitmap để thay đổi kích thước ảnh
         return Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true);
     }
+    Bitmap cropLeftAndRight(Bitmap originalBitmap, int cropPercentage) {
+        // 원본 이미지의 폭과 높이
+        int width = originalBitmap.getWidth();
+        int height = originalBitmap.getHeight();
+
+        // 잘라낼 크기 계산 (폭의 cropPercentage%)
+        int cropWidth = (int) (width * cropPercentage / 100.0f);
+
+        // 새로 남길 이미지의 폭과 시작점
+        int newWidth = width - 2 * cropWidth;
+        int startX = cropWidth;
+
+        // 이미지 자르기
+        return Bitmap.createBitmap(originalBitmap, startX, 0, newWidth, height);
+    }
+
     public Bitmap convertToGrayscale(Bitmap original) {
         // 원본 Bitmap의 DPI 가져오기 및 포맷 확인
         int dpi = original.getDensity();
