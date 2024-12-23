@@ -41,6 +41,7 @@ import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Base64;
 import android.util.Log;
 import android.util.SparseIntArray;
 import android.view.Surface;
@@ -84,7 +85,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     private MediaPlayer countdownSound;
     private MediaPlayer shutterSound;
     private int counterTime=1;
-
+    Bitmap image = null;
     LocalDateTime current;
     private CameraDevice cameraDevice;
     private CaptureRequest.Builder captureRequestBuilder;
@@ -139,8 +140,14 @@ public class Activity_Camera2 extends AppCompatActivity {
         SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
-      //  light=Integer.parseInt(sharedPreferences.getString("light", "20"));
-     //   contrast=sharedPreferences.getFloat("contrast", 1.7f);
+        String encodedBitmap = sharedPreferences.getString("bitmap_key", null);
+        if (encodedBitmap != null) {
+            byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+            image= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+        }
+        else {
+            image = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
+        }
 
         setContentView(R.layout.activity_camera2);
         Intent intent = new Intent(ACTION_USB_PERMISSION);
@@ -395,7 +402,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         // Tính toán kích thước mới cho processedBitmap2
         int newWidth = (int) (processedBitmap2.getWidth());
         int newHeight = (int) (processedBitmap2.getHeight());
-        int compensation=65;
+        int compensation=0;
 // Phóng to processedBitmap2
         Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
         Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
@@ -432,8 +439,7 @@ public class Activity_Camera2 extends AppCompatActivity {
                 BITMAP_SHAKE
         );
 
-        Bitmap[] pictureUnder = {null};
-        printDrawableImage(pictureUnder[0]);
+        printImage2(image, 0, 576, false, 1);
 
         imgSolve.clearCache();
         counterTime++;
@@ -471,19 +477,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             dialog.cancel();
         });
     }
-    private void printDrawableImage(Bitmap pic) {
-        // Load the drawable image as a Bitmap
 
-        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
-        if(pic!=null)
-        {
-            bitmap=pic;
-        }
-        // Check if the Bitmap was loaded successfully
-
-        // Call the existing printImage method to print the loaded image
-        printImage2(bitmap, -0, 576, false, 1);
-    }
     public void onClickPrint() {
         if (!checkClick.isClickEvent()) return;
         int iLeftMargin = 0;
@@ -545,7 +539,6 @@ public class Activity_Camera2 extends AppCompatActivity {
                 handler.sendEmptyMessage(PRINT_FAILURE);
             }
 
-            bitmap.recycle();
             bitmapPrint.recycle();
             dialog.cancel();
         });

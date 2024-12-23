@@ -38,7 +38,7 @@
         android:textSize="300sp" />
 
     <FrameLayout
-        android:id="@+id/frame_layout"
+        android:id="@+id/frame_layout_manual"
         android:layout_width="400dp"
         android:layout_height="match_parent"
         android:layout_alignParentEnd="true"

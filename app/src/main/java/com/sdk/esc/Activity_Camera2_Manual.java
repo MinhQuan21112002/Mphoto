@@ -37,11 +37,13 @@ import android.hardware.usb.UsbManager;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
@@ -63,14 +65,20 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
 import com.bumptech.glide.Glide;
+import com.luck.picture.lib.basic.PictureSelector;
+import com.luck.picture.lib.config.SelectMimeType;
+import com.luck.picture.lib.entity.LocalMedia;
+import com.luck.picture.lib.interfaces.OnResultCallbackListener;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Mat;
 import org.opencv.imgproc.CLAHE;
 import org.opencv.imgproc.Imgproc;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -131,7 +139,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     Button btnPrint;
     Button btnCancel;
     ImageView imageViewPreview ;
-
+    Bitmap image = null;
     ImageView imageViewSecond;
     boolean havingUsb=false;
     Button decrease;
@@ -148,8 +156,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         btnCancel=findViewById(R.id.btnCancel);
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
-     //   light=Integer.parseInt(sharedPreferences.getString("light", "10"));
-      //  contrast=sharedPreferences.getFloat("contrast", 1.3f);
+         //   light=Integer.parseInt(sharedPreferences.getString("light", "10"));
+        //  contrast=sharedPreferences.getFloat("contrast", 1.3f);
         imgSolve = new ImageSolve(this);
 
         btnPrint.setEnabled(false);
@@ -182,6 +190,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Activity_Camera2_Manual.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
         textureView = findViewById(R.id.texture);
+        imageViewSecond=findViewById(R.id.imageViewSecond);
         countdown= findViewById(R.id.countdownTextManual);
         ImageButton settingButton = findViewById(R.id.button_settings);
         ImageButton backButton = findViewById(R.id.button_back);
@@ -190,8 +199,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         textureView.setSurfaceTextureListener(textureListener);
         countdown.setVisibility(View.INVISIBLE);
         textureView.setOnClickListener(v -> {
-            btnPrint.setEnabled(true);
-            btnCancel.setEnabled(true);
+
 
             if (!Print.IsOpened()) {
                 Toast.makeText(Activity_Camera2_Manual.this, "Please connect to Printer", Toast.LENGTH_SHORT).show();
@@ -217,6 +225,82 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Intent intent2 = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class); // Chuyển đến SettingsActivity
             startActivity(intent2); // Bắt đầu Activity mới
         });
+        String encodedBitmap = sharedPreferences.getString("bitmap_key", null);
+        if (encodedBitmap != null) {
+            byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+            image= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+        }
+        else {
+            image = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
+        }
+
+
+        runOnUiThread(() -> {
+            Glide.with(Activity_Camera2_Manual.this)
+                    .load(image)  // Đường dẫn ảnh
+                    .into(imageViewSecond);  // Gắn ảnh vào ImageView
+        });
+
+        imageViewSecond.setOnClickListener(v -> {
+            // Ẩn popup khi click vào chính popup
+
+            try {
+                PictureSelector.create(Activity_Camera2_Manual.this)
+                        .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
+                        .setImageEngine(GlideEngine.createGlideEngine())  // Use Glide for loading image
+                        .forResult(new OnResultCallbackListener<LocalMedia>() {
+                            @Override
+                            public void onResult(ArrayList<LocalMedia> result) {
+                                if (result != null && !result.isEmpty()) {
+                                    // Lấy đường dẫn ảnh đầu tiên trong danh sách kết quả
+                                    String imagePath = result.get(0).getPath();
+
+                                    // Dùng Glide để tải ảnh vào ImageView
+                                    Uri uri = Uri.parse(imagePath);
+                                    try {
+                                        InputStream inputStream = getContentResolver().openInputStream(uri); // Mở luồng từ URI
+                                        image = BitmapFactory.decodeStream(inputStream); // Decode thành Bitmap
+                                        assert inputStream != null;
+                                        inputStream.close(); // Đóng luồng sau khi sử dụng
+                                    } catch (Exception ignored) {
+
+                                    }
+                                    image=imgSolve.convertToGrayscale(image);
+                                    try {
+                                        // Chuyển Bitmap sang Base64
+                                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                        image.compress(Bitmap.CompressFormat.PNG, 100, baos);
+                                        byte[] bitmapBytes = baos.toByteArray();
+                                        String decodedBitmap = Base64.encodeToString(bitmapBytes, Base64.DEFAULT);
+
+                                        // Lưu vào SharedPreferences
+                                        SharedPreferences preferences = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
+                                        SharedPreferences.Editor editor = preferences.edit();
+                                        editor.putString("bitmap_key", decodedBitmap);
+                                        editor.apply();
+
+                                    } catch (Exception e) {
+                                        Log.e("BitmapStorage", "Error saving Bitmap to SharedPreferences: " + e.getMessage());
+                                    }
+
+                                    Glide.with(Activity_Camera2_Manual.this)
+                                            .load(image)  // Đường dẫn ảnh
+                                            .into(imageViewSecond);  // Gắn ảnh vào ImageView
+
+                                }
+                            }
+
+                            @Override
+                            public void onCancel() {
+                                // Handle cancel action if needed
+                            }
+                        });
+            } catch (Exception e) {
+                Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+            }
+
+        });
+
     }
 
     private void startCountdown() {
@@ -614,6 +698,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
     private void setPrintDialog2(String path) {
 
+
         Bitmap origin = BitmapFactory.decodeFile(path);
 
         int dpi = origin.getDensity();
@@ -648,13 +733,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
         bmp.get().setDensity(dpi);
         frameLayoutPopup=findViewById(R.id.frame_layout);
-
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
-
         imageViewPreview = findViewById(R.id.imageViewPreview);
-
-        imageViewSecond = findViewById(R.id.imageViewSecond);
         increase=findViewById(R.id.btnIncrease);
         decrease=findViewById(R.id.btnDecrease);
         numberCount=findViewById(R.id.editTextNumber);
@@ -671,65 +752,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             counterTime++; // Tăng giá trị
             numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
         });
-        @SuppressLint("UseCompatLoadingForDrawables") Drawable drawable = getResources().getDrawable(R.drawable.bottom, null);
-
-        // Chuyển drawable thành bitmap
-
-        runOnUiThread(() -> {
-            Bitmap bitmapimgView = imgSolve.drawableToBitmap(drawable);
-            bitmapimgView=imgSolve.convertToGrayscale(bitmapimgView);
-            Glide.with(Activity_Camera2_Manual.this)
-                    .load(bitmapimgView)  // Đường dẫn ảnh
-                    .into(imageViewSecond);  // Gắn ảnh vào ImageView
-        });
-
-        Bitmap[] pictureUnder = {null};
-//        imageViewSecond.setOnClickListener(v -> {
-//            // Ẩn popup khi click vào chính popup
-//
-//                try {
-//                    PictureSelector.create(Activity_Camera2_Manual.this)
-//                            .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
-//                            .setImageEngine(GlideEngine.createGlideEngine())  // Use Glide for loading image
-//                            .forResult(new OnResultCallbackListener<LocalMedia>() {
-//                                @Override
-//                                public void onResult(ArrayList<LocalMedia> result) {
-//                                    if (result != null && !result.isEmpty()) {
-//                                        // Lấy đường dẫn ảnh đầu tiên trong danh sách kết quả
-//                                        String imagePath = result.get(0).getPath();
-//
-//                                        // Dùng Glide để tải ảnh vào ImageView
-//                                        Uri uri = Uri.parse(imagePath);
-//                                        try {
-//                                            InputStream inputStream = getContentResolver().openInputStream(uri); // Mở luồng từ URI
-//                                            pictureUnder[0]= BitmapFactory.decodeStream(inputStream); // Decode thành Bitmap
-//                                            assert inputStream != null;
-//                                            inputStream.close(); // Đóng luồng sau khi sử dụng
-//                                        } catch (Exception e) {
-//                                            Log.d("CameraEXP", "Error " + e);
-//
-//                                        }
-//                                        pictureUnder[0]=imgSolve.convertToGrayscale(pictureUnder[0]);
-//                                        Glide.with(Activity_Camera2_Manual.this)
-//                                                .load(pictureUnder[0])  // Đường dẫn ảnh
-//                                                .into(imageViewSecond);  // Gắn ảnh vào ImageView
-//
-//                                    }
-//                                }
-//
-//                                @Override
-//                                public void onCancel() {
-//                                    // Handle cancel action if needed
-//                                }
-//                            });
-//                } catch (Exception e) {
-//                    Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
-//                }
-//
-//        });
 
         runOnUiThread(() -> {
             try {
+                btnPrint.setEnabled(true);
+                btnCancel.setEnabled(true);
                 frameLayoutPopup.setVisibility(View.VISIBLE);
                 textureView.setEnabled(false);
 
@@ -762,8 +789,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 // Tạo Bitmap mới để kết hợp
         // Tính toán kích thước mới cho processedBitmap2
-        int newWidth = (int) (processedBitmap2.getWidth());
-        int newHeight = (int) (processedBitmap2.getHeight());
+        int newWidth = processedBitmap2.getWidth();
+        int newHeight = processedBitmap2.getHeight();
         Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
 // Phóng to processedBitmap2
         Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
@@ -786,9 +813,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 // Tính toán xOffset và yOffset để căn giữa enlargedBitmap bên trong bitmapFrame
 
-// Vẽ enlargedBitmap đã căn giữa vào bên trong bitmapFrame
-
-// Đặt mật độ cho combinedBitmap giống bitmapFrame
         combinedBitmap.setDensity(bitmapFrame.getDensity());
 
         runOnUiThread(() -> {
@@ -816,7 +840,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 );
 
 
-                printDrawableImage(pictureUnder[0]);
+                printImage2(image, 0, 576, false, 1);
 
                 imgSolve.clearCache();
                 counterTime++;
@@ -900,19 +924,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             dialog.cancel();
         });
     }
-    private void printDrawableImage(Bitmap pic) {
-        // Load the drawable image as a Bitmap
 
-        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
-        if(pic!=null)
-        {
-            bitmap=pic;
-        }
-        // Check if the Bitmap was loaded successfully
-
-        // Call the existing printImage method to print the loaded image
-        printImage2(bitmap, 0, 576, false, 1);
-    }
     public void onClickPrint() {
         if (!checkClick.isClickEvent()) return;
         int iLeftMargin = 0;
@@ -974,7 +986,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 handler.sendEmptyMessage(PRINT_FAILURE);
             }
 
-            bitmap.recycle();
+
             bitmapPrint.recycle();
             dialog.cancel();
         });
