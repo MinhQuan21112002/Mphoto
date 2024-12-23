@@ -36,8 +36,10 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
@@ -98,6 +100,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     // Button cho capture ảnh
 
     // preview camera
+    TextView countdown;
+    private MediaPlayer countdownSound;
+    private MediaPlayer shutterSound;
     private TextureView textureView;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
@@ -177,12 +182,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Activity_Camera2_Manual.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
         textureView = findViewById(R.id.texture);
+        countdown= findViewById(R.id.countdownTextManual);
         ImageButton settingButton = findViewById(R.id.button_settings);
         ImageButton backButton = findViewById(R.id.button_back);
 
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
-
+        countdown.setVisibility(View.INVISIBLE);
         textureView.setOnClickListener(v -> {
             btnPrint.setEnabled(true);
             btnCancel.setEnabled(true);
@@ -200,7 +206,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
             }
             else{
-                takePicture(); // Gọi hàm chụp ảnh sau khi đếm ngược xong
+
+                startCountdown();
                 textureView.setEnabled(false);
             }
         });
@@ -212,7 +219,53 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
     }
 
+    private void startCountdown() {
+        // Hiển thị TextView countdown
+        countdown.setVisibility(View.VISIBLE);
+        countdownSound = MediaPlayer.create(this, R.raw.countdown); // Sử dụng tệp âm thanh cho 3 giây
+        shutterSound = MediaPlayer.create(this, R.raw.shutter); // Sử dụng tệp âm thanh cho tiếng chụp
 
+        // Khởi tạo CountDownTimer, đếm ngược từ 3 giây
+        new CountDownTimer(3000, 1000) {
+
+            @Override
+            public void onTick(long millisUntilFinished) {
+                // Cập nhật TextView với số giây còn lại
+                int secondsRemaining = (int) millisUntilFinished / 1000;
+
+                // Phát âm thanh cho mỗi giây đếm ngược
+                switch (secondsRemaining+1) {
+                    case 3:
+                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
+                        countdownSound.start();
+                        countdown.setText("3");
+                        break;
+                    case 2:
+                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
+                        countdownSound.start();
+                        countdown.setText("2");
+                        break;
+                    case 1:
+                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
+                        countdownSound.start();
+                        countdown.setText("1");
+                        break;
+                }
+            }
+
+            @Override
+            public void onFinish() {
+                // Sau khi đếm ngược xong, thực hiện chụp ảnh
+                takePicture(); // Gọi hàm chụp ảnh sau khi đếm ngược xong
+
+                // Phát âm thanh tiếng chụp
+                shutterSound.start();
+
+                // Ẩn TextView countdown sau khi chụp ảnh
+                countdown.setVisibility(View.GONE);
+            }
+        }.start();
+    }
     private void connectUSB() {
         UsbManager mUsbManager = (UsbManager) Activity_Camera2_Manual.this.getSystemService(Context.USB_SERVICE);
         HashMap<String, UsbDevice> deviceList = mUsbManager.getDeviceList();
@@ -618,7 +671,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             counterTime++; // Tăng giá trị
             numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
         });
-        @SuppressLint("UseCompatLoadingForDrawables") Drawable drawable = getResources().getDrawable(R.drawable.facebook, null);
+        @SuppressLint("UseCompatLoadingForDrawables") Drawable drawable = getResources().getDrawable(R.drawable.bottom, null);
 
         // Chuyển drawable thành bitmap
 
@@ -695,40 +748,45 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
-        @SuppressLint("UseCompatLoadingForDrawables") Drawable noel = getResources().getDrawable(R.drawable.noel6, null);
+        @SuppressLint("UseCompatLoadingForDrawables") Drawable noel = getResources().getDrawable(R.drawable.noel1, null);
         Bitmap bitmapFrame = imgSolve.drawableToBitmap(noel);
         bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
         bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
 // Bitmap đã xử lý (adjustedBitmap2[0])
         Bitmap processedBitmap2 = adjustedBitmap2[0];
         processedBitmap2=imgSolve.cropLeftRightToSquare(processedBitmap2);
+        processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
+        int compensation=65;
+// Phóng to processedBitmap2
+
+
 // Tạo Bitmap mới để kết hợp
         // Tính toán kích thước mới cho processedBitmap2
-        int newWidth = (int) (processedBitmap2.getWidth()*1.3);
-        int newHeight = (int) (processedBitmap2.getHeight()*1.3);
-
+        int newWidth = (int) (processedBitmap2.getWidth());
+        int newHeight = (int) (processedBitmap2.getHeight());
+        Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
 // Phóng to processedBitmap2
-        Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth, newHeight, true);
+        Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
 
-        int compensation=65;
+
         // compensation=65 android 14, compensation=0 android 11
 // Tạo Bitmap mới để kết hợp
         Bitmap combinedBitmap = Bitmap.createBitmap(
-                bitmapFrame.getWidth()+compensation,
-                bitmapFrame.getHeight()+compensation,
+                processedBitmap2.getWidth()+compensation,
+                processedBitmap2.getHeight()+compensation,
                 Bitmap.Config.ARGB_8888
         );
 
+
 // Vẽ bitmapFrame lên Canvas
         Canvas canvas = new Canvas(combinedBitmap);
-        canvas.drawBitmap(bitmapFrame, 0, 0, null);
+        canvas.drawBitmap(enlargedBitmap, 0, 0, null);
+
+        canvas.drawBitmap(newFrameBitmap, 0, 0, null);
 
 // Tính toán xOffset và yOffset để căn giữa enlargedBitmap bên trong bitmapFrame
-        int xOffset = (bitmapFrame.getWidth() - enlargedBitmap.getWidth()) / 2+compensation;
-        int yOffset = (bitmapFrame.getHeight() - enlargedBitmap.getHeight()) / 2+compensation;
 
 // Vẽ enlargedBitmap đã căn giữa vào bên trong bitmapFrame
-        canvas.drawBitmap(enlargedBitmap, xOffset, yOffset, null);
 
 // Đặt mật độ cho combinedBitmap giống bitmapFrame
         combinedBitmap.setDensity(bitmapFrame.getDensity());
@@ -845,7 +903,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private void printDrawableImage(Bitmap pic) {
         // Load the drawable image as a Bitmap
 
-        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.facebook);
+        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
         if(pic!=null)
         {
             bitmap=pic;
@@ -853,7 +911,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         // Check if the Bitmap was loaded successfully
 
         // Call the existing printImage method to print the loaded image
-        printImage2(bitmap, -25, 576, false, 2);
+        printImage2(bitmap, 0, 576, false, 1);
     }
     public void onClickPrint() {
         if (!checkClick.isClickEvent()) return;

@@ -1,6 +1,7 @@
 package com.sdk.esc;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
@@ -11,11 +12,14 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import org.opencv.core.Size;
+
+import android.graphics.drawable.Drawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -43,6 +47,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
@@ -61,6 +66,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+
 import print.Print;
 import android.media.MediaPlayer;
 
@@ -89,6 +96,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
     // preview camera
     private TextureView textureView;
+    private ImageView imgFrame;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
     private final int PRINT_FAILURE = 0;
@@ -162,6 +170,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             Activity_Camera2.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
         textureView = findViewById(R.id.texture);
+        imgFrame=findViewById(R.id.idIVLogo);
         ImageButton settingButton = findViewById(R.id.button_setting_change);
         countdown= findViewById(R.id.countdownText);
         countdown.setVisibility(View.INVISIBLE);
@@ -332,7 +341,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         int dpi = origin.getDensity();
         if (dpi == 0) dpi = 203; // 기본 DPI 설정
-        origin = imgSolve.cropLeftAndRight(origin, 15);
+
         // Bitmap을 Mat 객체로 변환
         origin = origin.copy(Bitmap.Config.ARGB_8888, true); // Bitmap 포맷을 ARGB_8888로 변환
         Mat matOriginal = new Mat();
@@ -344,28 +353,23 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         // CLAHE 적용
         Mat matCLAHE = new Mat();
-        CLAHE clahe = Imgproc.createCLAHE(.8, new Size(16, 16));
+        CLAHE clahe = Imgproc.createCLAHE(0.4, new org.opencv.core.Size(3, 3));
         clahe.apply(matGray, matCLAHE);
 
-        // CLAHE 결과를 다시 컬러로 변환
-        Mat matColorCLAHE = new Mat();
-        Imgproc.cvtColor(matCLAHE, matColorCLAHE, Imgproc.COLOR_GRAY2BGR);
+// *가우시안 블러 적용*
+        Mat matBlurred = new Mat();
+        Imgproc.GaussianBlur(matCLAHE, matBlurred, new org.opencv.core.Size(3, 3), 0);
 
-        // Median Filter 적용 (커널 크기 3x3)
-        Mat matFiltered = new Mat();
-        Imgproc.medianBlur(matColorCLAHE, matFiltered, 3);
-
-        // Mat을 Bitmap으로 변환
-        Bitmap filteredBitmap = Bitmap.createBitmap(matFiltered.cols(), matFiltered.rows(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(matFiltered, filteredBitmap);
-
+// Mat을 Bitmap으로 변환
+        Bitmap processedBitmap = Bitmap.createBitmap(matBlurred.cols(), matBlurred.rows(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(matBlurred, processedBitmap);
         float widthMm = 80; // 출력 폭 (mm)
         int widthPixels = (int) (widthMm * dpi / 25.4);
 
-        Bitmap resizedBitmap = imgSolve.resizeBitmapWithGPUImage(Activity_Camera2.this, filteredBitmap, widthPixels);
-        Bitmap sharpenedBitmap2 = imgSolve.applySharpening(resizedBitmap, 1f);
-        Bitmap bmp = imgSolve.smoothImageWithGPUImage(sharpenedBitmap2, 4.0f);
-        bmp.setDensity(dpi);
+        Bitmap resizedBitmap = imgSolve.resizeBitmapWithGPUImage(Activity_Camera2.this, processedBitmap, widthPixels);
+
+        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
+        bmp.get().setDensity(dpi);
 
 
         int light = 15;
@@ -375,9 +379,43 @@ public class Activity_Camera2 extends AppCompatActivity {
         Bitmap[] adjustedBitmap2 = {null};
 
 
-        adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp, lightValue1[0]);
+        adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
+
+        @SuppressLint("UseCompatLoadingForDrawables") Drawable noel = getResources().getDrawable(R.drawable.noel1, null);
+        Bitmap bitmapFrame = imgSolve.drawableToBitmap(noel);
+        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
+        bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
+// Bitmap đã xử lý (adjustedBitmap2[0])
+        Bitmap processedBitmap2 = adjustedBitmap2[0];
+        processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
+
+// Tạo Bitmap mới để kết hợp
+        // Tính toán kích thước mới cho processedBitmap2
+        int newWidth = (int) (processedBitmap2.getWidth());
+        int newHeight = (int) (processedBitmap2.getHeight());
+        int compensation=65;
+// Phóng to processedBitmap2
+        Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
+        Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
+
+
+        // compensation=65 android 14, compensation=0 android 11
+// Tạo Bitmap mới để kết hợp
+        Bitmap combinedBitmap = Bitmap.createBitmap(
+                processedBitmap2.getWidth()+compensation,
+                processedBitmap2.getHeight()+compensation,
+                Bitmap.Config.ARGB_8888
+        );
+
+
+// Vẽ bitmapFrame lên Canvas
+        Canvas canvas = new Canvas(combinedBitmap);
+        canvas.drawBitmap(enlargedBitmap, 0, 0, null);
+
+        canvas.drawBitmap(newFrameBitmap, 0, 0, null);
+
 
 
 
@@ -387,7 +425,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         int PRINT_THREE_INCH = 576;
         int BITMAP_SHAKE = 1;
         printImage(
-                adjustedBitmap2[0],
+                combinedBitmap,
                 10,
                 PRINT_THREE_INCH,
                 false,
@@ -436,7 +474,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     private void printDrawableImage(Bitmap pic) {
         // Load the drawable image as a Bitmap
 
-        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.facebook);
+        Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
         if(pic!=null)
         {
             bitmap=pic;
@@ -444,7 +482,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         // Check if the Bitmap was loaded successfully
 
         // Call the existing printImage method to print the loaded image
-        printImage2(bitmap, -25, 576, false, 2);
+        printImage2(bitmap, -0, 576, false, 1);
     }
     public void onClickPrint() {
         if (!checkClick.isClickEvent()) return;

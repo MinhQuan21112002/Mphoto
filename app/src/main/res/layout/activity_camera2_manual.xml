@@ -7,26 +7,39 @@
     tools:context="com.sdk.esc.Activity_Camera2">
 
     <!-- TextureView cho preview Camera2 -->
-
     <!-- FrameLayout hiển thị bên phải TextureView -->
-
-    <FrameLayout
+    <TextureView
+        android:id="@+id/texture"
         android:layout_width="789dp"
-        android:layout_height="753dp"
+        android:layout_height="match_parent"
+        android:layout_alignEnd="@+id/imageView" />
+
+    <ImageView
+        android:id="@+id/imageView"
+        android:layout_width="789dp"
+        android:layout_height="match_parent"
         android:layout_marginEnd="-9dp"
-        android:layout_toStartOf="@+id/frame_layout"
-        android:background="@drawable/noel6">
+        android:background="@drawable/noel1" />
 
-        <TextureView
-            android:id="@+id/texture"
-            android:layout_width="384dp"
-            android:layout_height="356dp"
-            android:layout_gravity="center" />
+    <TextView
+        android:id="@+id/countdownTextManual"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignEnd="@+id/texture"
+        android:layout_alignBottom="@+id/texture"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginStart="297dp"
+        android:layout_marginTop="153dp"
+        android:layout_marginEnd="252dp"
+        android:layout_marginBottom="134dp"
+        android:text="3"
+        android:textColor="#B0B0B0"
+        android:textSize="300sp" />
 
-    </FrameLayout>
     <FrameLayout
         android:id="@+id/frame_layout"
-        android:layout_width="500dp"
+        android:layout_width="400dp"
         android:layout_height="match_parent"
         android:layout_alignParentEnd="true"
         android:layout_marginStart="16dp"
@@ -112,7 +125,7 @@
                     android:layout_marginTop="16dp"
                     android:scaleType="centerInside"
                     android:contentDescription="Second Image"
-                    android:src="@drawable/facebook" />
+                    android:src="@drawable/bottom" />
 
                 <LinearLayout
                     android:orientation="horizontal"
