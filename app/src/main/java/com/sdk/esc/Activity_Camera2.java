@@ -72,6 +72,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import print.Print;
 import android.media.MediaPlayer;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.core.Mat;
@@ -121,6 +124,8 @@ public class Activity_Camera2 extends AppCompatActivity {
     private HandlerThread mBackgroundThread;
     TextView countdown;
     boolean havingUsb=false;
+    int currentIndex;
+    List<String> bitmapList;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -209,7 +214,32 @@ public class Activity_Camera2 extends AppCompatActivity {
             startActivity(intent2); // Bắt đầu Activity mới
         });
 
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        String jsonString = preferences.getString("bitmap_list", "[]");
+        Gson gson = new Gson();
+        bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+        currentIndex= preferences.getInt("current_index", 0);
 
+
+        updateImageView(currentIndex);
+
+    }
+    private void updateImageView(int index) {
+        if (bitmapList != null && index < bitmapList.size()) {
+            String encodedBitmap = bitmapList.get(index);
+            byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+
+            // Tính toán kích thước mới theo tỷ lệ 16:10
+            int originalWidth = bitmap.getWidth();
+            int targetHeight = (int) (originalWidth * (10.0 / 19.0));
+
+            // Resize bitmap
+            Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, targetHeight, true);
+
+            // Set resized bitmap vào ImageView
+            imgFrame.setImageBitmap(resizedBitmap);
+        }
     }
 
     private void startCountdown() {
@@ -390,8 +420,11 @@ public class Activity_Camera2 extends AppCompatActivity {
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
 
-        @SuppressLint("UseCompatLoadingForDrawables") Drawable noel = getResources().getDrawable(R.drawable.noel1, null);
-        Bitmap bitmapFrame = imgSolve.drawableToBitmap(noel);
+        String encodedBitmap = bitmapList.get(currentIndex);
+
+// Decode Base64 để lấy Bitmap
+        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+        Bitmap bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
         bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
         bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
 // Bitmap đã xử lý (adjustedBitmap2[0])

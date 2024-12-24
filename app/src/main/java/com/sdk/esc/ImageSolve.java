@@ -206,6 +206,34 @@ public class ImageSolve {
         // 변환된 Bitmap 반환
         return grayscaleBitmap;
     }
+    public Bitmap convertALPHA8(Bitmap original) {
+        // 원본 Bitmap의 DPI 가져오기 및 포맷 확인
+        int dpi = original.getDensity();
+        Bitmap.Config config = original.getConfig() != null ? original.getConfig() : Bitmap.Config.ALPHA_8;
+
+        // 새로운 Bitmap 생성
+        Bitmap grayscaleBitmap = Bitmap.createBitmap(
+                original.getWidth(),
+                original.getHeight(),
+                config
+        );
+
+        // DPI 설정 유지
+        grayscaleBitmap.setDensity(dpi);
+
+        // Canvas 및 Paint 초기화
+        Canvas canvas = new Canvas(grayscaleBitmap);
+        Paint paint = new Paint();
+
+        // ColorMatrix를 사용하여 흑백 변환 필터 설정
+
+
+        // Canvas에 원본 이미지를 그리기
+        canvas.drawBitmap(original, 0, 0, paint);
+
+        // 변환된 Bitmap 반환
+        return grayscaleBitmap;
+    }
 
     public Bitmap convertToGrayscale2(Context context, Bitmap inputBitmap) {
         // GPUImage 초기화

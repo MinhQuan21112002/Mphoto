@@ -4,5 +4,7 @@
     <color name="colorPrimaryDark">#3700B3</color>
     <color name="colorAccent">#03DAC5</color>
     <color name="black">#000000</color>
+    <color name="hover_color">#FFDDDDDD</color> <!-- Màu xám nhạt khi hover -->
+    <color name="normal_color">#FFFFFFFF</color> <!-- Màu trắng bình thường -->
 
 </resources>

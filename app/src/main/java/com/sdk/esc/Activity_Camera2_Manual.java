@@ -63,8 +63,13 @@ import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.luck.picture.lib.basic.PictureSelector;
 import com.luck.picture.lib.config.SelectMimeType;
 import com.luck.picture.lib.entity.LocalMedia;
@@ -145,23 +150,41 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     Button decrease;
     Button increase;
     EditText numberCount;
+    ImageButton buttonUp;
+    ImageButton buttonDown;
+    ImageButton buttonList;
+    List<String> bitmapList;
+    ImageView frame;
+    int currentIndex;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera2_manual);
         SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
-
+        buttonUp=findViewById(R.id.button_up);
+        buttonDown=findViewById(R.id.button_down);
+        buttonList=findViewById(R.id.button_list);
+        increase=findViewById(R.id.btnIncrease);
+        decrease=findViewById(R.id.btnDecrease);
+        numberCount=findViewById(R.id.editTextNumber);
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
+        textureView = findViewById(R.id.texture);
+        imageViewSecond=findViewById(R.id.imageViewSecond);
+        countdown= findViewById(R.id.countdownTextManual);
+        frame=findViewById(R.id.imageView);
+
+
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
-         //   light=Integer.parseInt(sharedPreferences.getString("light", "10"));
-        //  contrast=sharedPreferences.getFloat("contrast", 1.3f);
         imgSolve = new ImageSolve(this);
-
         btnPrint.setEnabled(false);
         btnCancel.setEnabled(false);
+
+        ImageButton settingButton = findViewById(R.id.button_settings);
+        ImageButton backButton = findViewById(R.id.button_back);
+
 
         Intent intent = new Intent(ACTION_USB_PERMISSION);
         intent.setPackage(Activity_Camera2_Manual.this.getPackageName());
@@ -189,11 +212,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Activity_Camera2_Manual.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
-        textureView = findViewById(R.id.texture);
-        imageViewSecond=findViewById(R.id.imageViewSecond);
-        countdown= findViewById(R.id.countdownTextManual);
-        ImageButton settingButton = findViewById(R.id.button_settings);
-        ImageButton backButton = findViewById(R.id.button_back);
+
 
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
@@ -234,6 +253,30 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             image = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
         }
 
+        //Add image Frame and edit
+        buttonList.setOnClickListener(v -> showImageFrameDialog());
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        String jsonString = preferences.getString("bitmap_list", "[]");
+        Gson gson = new Gson();
+        bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+        currentIndex= preferences.getInt("current_index", 0);
+        updateImageView(currentIndex);
+        buttonUp.setOnClickListener(v -> {
+            if (currentIndex < bitmapList.size() - 1) { // Không vượt quá danh sách
+                currentIndex++;
+                updateImageView(currentIndex);
+                saveCurrentIndex(currentIndex);
+            }
+        });
+
+// Xử lý nút "Down"
+        buttonDown.setOnClickListener(v -> {
+            if (currentIndex > 0) { // Không nhỏ hơn 0
+                currentIndex--;
+                updateImageView(currentIndex);
+                saveCurrentIndex(currentIndex);
+            }
+        });
 
         runOnUiThread(() -> {
             Glide.with(Activity_Camera2_Manual.this)
@@ -301,6 +344,33 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         });
 
+        // Lấy giá trị nguyên sau khi nhân với 10
+
+        numberCount.setText(String.valueOf(counterTime));
+        decrease.setOnClickListener(v -> {
+            counterTime--; // Giảm giá trị
+            numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
+        });
+
+        // Xử lý sự kiện khi nhấn nút tăng
+        increase.setOnClickListener(v -> {
+            counterTime++; // Tăng giá trị
+            numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
+        });
+    }
+    private void updateImageView(int index) {
+        if (bitmapList != null && index < bitmapList.size()) {
+            String encodedBitmap = bitmapList.get(index);
+            byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+            frame.setImageBitmap(bitmap); // Cập nhật ImageView
+        }
+    }
+    private void saveCurrentIndex(int index) {
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putInt("current_index", index); // Lưu index hiện tại
+        editor.apply(); // Áp dụng thay đổi
     }
 
     private void startCountdown() {
@@ -432,6 +502,108 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
         }
     };
+
+    public void showImageFrameDialog() {
+        LayoutInflater inflater = getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.list_image_frame, null);
+        Button buttonAdd = dialogView.findViewById(R.id.btnAddImage);
+        RecyclerView recyclerView = dialogView.findViewById(R.id.recyclerViewImages);
+
+        // Setup RecyclerView with GridLayoutManager
+        int numberOfColumns = 3; // Number of columns to display
+        recyclerView.setLayoutManager(new GridLayoutManager(this, numberOfColumns));
+
+        // Load image list from SharedPreferences
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        String jsonString = preferences.getString("bitmap_list", "[]");
+        Gson gson = new Gson();
+        bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+
+        // Display the image list in RecyclerView
+        ImageListAdapter adapter = new ImageListAdapter(this, bitmapList);
+        recyclerView.setAdapter(adapter);
+
+        buttonAdd.setOnClickListener(v -> {
+            try {
+                PictureSelector.create(Activity_Camera2_Manual.this)
+                        .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
+                        .setImageEngine(GlideEngine.createGlideEngine())  // Use Glide for loading image
+                        .forResult(new OnResultCallbackListener<LocalMedia>() {
+                            @Override
+                            public void onResult(ArrayList<LocalMedia> result) {
+                                if (result != null && !result.isEmpty()) {
+                                    // Get the first image path from the result list
+                                    String imagePath = result.get(0).getPath();
+
+                                    // Use Glide to load the image into the ImageView
+                                    Uri uri = Uri.parse(imagePath);
+                                    try {
+                                        InputStream inputStream = getContentResolver().openInputStream(uri); // Open stream from URI
+                                        Bitmap image = BitmapFactory.decodeStream(inputStream); // Decode to Bitmap
+                                        inputStream.close(); // Close the stream
+
+                                        // Resize image to reduce memory usage
+                                        int targetWidth = 800; // Kích thước chiều rộng mong muốn
+                                        int targetHeight = 800; // Kích thước chiều cao mong muốn
+                                        image = Bitmap.createScaledBitmap(image, targetWidth, targetHeight, true);
+
+                                        // Convert image to grayscale
+                                        image = imgSolve.convertALPHA8(image);
+
+                                        // Convert Bitmap to Base64
+                                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                        image.compress(Bitmap.CompressFormat.PNG, 100, baos); // Compress the image to reduce file size
+                                        byte[] bitmapBytes = baos.toByteArray();
+                                        String encodedBitmap = Base64.encodeToString(bitmapBytes, Base64.DEFAULT);
+
+                                        // Get saved image list from SharedPreferences
+                                        String jsonString = preferences.getString("bitmap_list", "[]");
+                                        List<String> bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+
+                                        // Add the new image to the list
+                                        bitmapList.add(encodedBitmap);
+
+                                        // Save the updated list back to SharedPreferences
+                                        SharedPreferences.Editor editor = preferences.edit();
+                                        editor.putString("bitmap_list", gson.toJson(bitmapList));
+                                        editor.apply();
+                                        AlertDialog dialog = (AlertDialog) v.getTag();
+                                        if (dialog != null) {
+                                            dialog.dismiss();  // Close the current dialog
+                                        }
+
+                                        showImageFrameDialog();  // Reload the dialog
+
+
+                                    } catch (Exception e) {
+                                        Log.e("BitmapProcessing", "Error processing image", e);
+                                    }
+
+                                }
+                            }
+
+                            @Override
+                            public void onCancel() {
+                                // Handle cancel action if needed
+                            }
+                        });
+            } catch (Exception e) {
+                Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+            }
+        });
+
+        // Setup dialog
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setView(dialogView);
+        builder.setTitle("Danh sách hình ảnh");
+        builder.setPositiveButton("Đóng", (dialog, which) -> dialog.dismiss());
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // Store dialog reference to dismiss later
+        buttonAdd.setTag(dialog);  // Store dialog reference for later dismissal
+    }
+
 
     private void showSettingDialog() {
         LayoutInflater inflater = getLayoutInflater();
@@ -736,22 +908,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
         imageViewPreview = findViewById(R.id.imageViewPreview);
-        increase=findViewById(R.id.btnIncrease);
-        decrease=findViewById(R.id.btnDecrease);
-        numberCount=findViewById(R.id.editTextNumber);
-        // Lấy giá trị nguyên sau khi nhân với 10
 
-        numberCount.setText(String.valueOf(counterTime));
-        decrease.setOnClickListener(v -> {
-            counterTime--; // Giảm giá trị
-            numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
-        });
-
-        // Xử lý sự kiện khi nhấn nút tăng
-        increase.setOnClickListener(v -> {
-            counterTime++; // Tăng giá trị
-            numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
-        });
 
         runOnUiThread(() -> {
             try {
@@ -775,15 +932,19 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
-        @SuppressLint("UseCompatLoadingForDrawables") Drawable noel = getResources().getDrawable(R.drawable.noel1, null);
-        Bitmap bitmapFrame = imgSolve.drawableToBitmap(noel);
+        
+        String encodedBitmap = bitmapList.get(currentIndex);
+
+// Decode Base64 để lấy Bitmap
+        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+        Bitmap bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
         bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
         bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
 // Bitmap đã xử lý (adjustedBitmap2[0])
         Bitmap processedBitmap2 = adjustedBitmap2[0];
         processedBitmap2=imgSolve.cropLeftRightToSquare(processedBitmap2);
         processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
-        int compensation=65;
+        int compensation=0;
 // Phóng to processedBitmap2
 
 
@@ -791,6 +952,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         // Tính toán kích thước mới cho processedBitmap2
         int newWidth = processedBitmap2.getWidth();
         int newHeight = processedBitmap2.getHeight();
+
         Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
 // Phóng to processedBitmap2
         Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);

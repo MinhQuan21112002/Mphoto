@@ -18,8 +18,7 @@
         android:id="@+id/imageView"
         android:layout_width="789dp"
         android:layout_height="match_parent"
-        android:layout_marginEnd="-9dp"
-        android:background="@drawable/noel1" />
+        android:layout_marginEnd="-9dp" />
 
     <TextView
         android:id="@+id/countdownTextManual"
@@ -36,6 +35,54 @@
         android:text="3"
         android:textColor="#B0B0B0"
         android:textSize="300sp" />
+
+    <FrameLayout
+        android:id="@+id/chang_frame"
+        android:layout_width="111dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="0dp"
+        android:layout_marginEnd="-20dp"
+        android:layout_toStartOf="@+id/frame_layout_manual"
+        android:layout_toEndOf="@+id/texture"
+        android:background="@color/ps_color_white"
+        android:visibility="visible" >
+
+        <ImageButton
+            android:id="@+id/button_up"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="center_horizontal|top"
+            android:contentDescription="@string/settings"
+            android:scaleType="centerCrop"
+            android:src="@drawable/up_button"
+            android:layout_marginTop="200dp"
+            android:background="@drawable/button_hover_effect"
+            app:tint="#070707" />
+
+        <ImageButton
+            android:id="@+id/button_list"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="center_horizontal|bottom"
+            android:contentDescription="@string/settings"
+            android:scaleType="centerCrop"
+            android:src="@drawable/list"
+            android:layout_marginBottom="330dp"
+            android:background="@drawable/button_hover_effect"
+            app:tint="#070707" />
+        <ImageButton
+            android:id="@+id/button_down"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
+            android:layout_gravity="center_horizontal|bottom"
+            android:contentDescription="@string/settings"
+            android:scaleType="centerCrop"
+            android:src="@drawable/down_butotn"
+            android:layout_marginBottom="200dp"
+            android:background="@drawable/button_hover_effect"
+            app:tint="#070707" />
+    </FrameLayout>
+
 
     <FrameLayout
         android:id="@+id/frame_layout_manual"
