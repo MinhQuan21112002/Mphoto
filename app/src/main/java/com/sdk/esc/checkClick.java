@@ -7,9 +7,9 @@ public class checkClick {
     public static boolean isClickEvent() {
         long time = System.currentTimeMillis();
         if (time - mOldClickTime < CLICK_DELAY)
-            return false;
+            return true;
 
         mOldClickTime = time;
-        return true;
+        return false;
     }
 }

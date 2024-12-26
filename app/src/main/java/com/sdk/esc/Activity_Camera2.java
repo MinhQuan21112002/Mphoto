@@ -1,9 +1,7 @@
 package com.sdk.esc;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.PendingIntent;
-import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -17,9 +15,6 @@ import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
-import org.opencv.core.Size;
-
-import android.graphics.drawable.Drawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -93,9 +88,8 @@ public class Activity_Camera2 extends AppCompatActivity {
     private CameraDevice cameraDevice;
     private CaptureRequest.Builder captureRequestBuilder;
     private static final String TAG = "AndroidCameraApi";
-    private ProgressDialog dialog;
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
-    private Handler handler;
+    public Handler handler;
     // Button cho capture ảnh
 
     // preview camera
@@ -232,7 +226,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
             // Tính toán kích thước mới theo tỷ lệ 16:10
             int originalWidth = bitmap.getWidth();
-            int targetHeight = (int) (originalWidth * (10.0 / 19.0));
+            int targetHeight = (int) (originalWidth * (9.0 / 16.0));
 
             // Resize bitmap
             Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, targetHeight, true);
@@ -433,15 +427,15 @@ public class Activity_Camera2 extends AppCompatActivity {
 
 // Tạo Bitmap mới để kết hợp
         // Tính toán kích thước mới cho processedBitmap2
-        int newWidth = (int) (processedBitmap2.getWidth());
-        int newHeight = (int) (processedBitmap2.getHeight());
+        int newWidth = processedBitmap2.getWidth();
+        int newHeight = processedBitmap2.getHeight();
         int compensation=0;
 // Phóng to processedBitmap2
         Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
         Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
 
 
-        // compensation=65 android 14, compensation=0 android 11
+        // compensation=70 android 14, compensation=0 android 11
 // Tạo Bitmap mới để kết hợp
         Bitmap combinedBitmap = Bitmap.createBitmap(
                 processedBitmap2.getWidth()+compensation,
@@ -481,10 +475,8 @@ public class Activity_Camera2 extends AppCompatActivity {
 
     public void printImage(final Bitmap bitmap, final int light, final int size,
                            final boolean isRotate, final int sype) {
-        dialog = new ProgressDialog(Activity_Camera2.this);
-        dialog.setMessage("Printing.....");
-        dialog.setProgress(100);
-        dialog.show();
+
+
 
         executorService.execute(() -> {
             Bitmap bitmapPrint = bitmap;
@@ -507,12 +499,11 @@ public class Activity_Camera2 extends AppCompatActivity {
             }
             bitmap.recycle();
             bitmapPrint.recycle();
-            dialog.cancel();
         });
     }
 
     public void onClickPrint() {
-        if (!checkClick.isClickEvent()) return;
+        if (checkClick.isClickEvent()) return;
         int iLeftMargin = 0;
         String formatted="";
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -573,7 +564,6 @@ public class Activity_Camera2 extends AppCompatActivity {
             }
 
             bitmapPrint.recycle();
-            dialog.cancel();
         });
     }
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {

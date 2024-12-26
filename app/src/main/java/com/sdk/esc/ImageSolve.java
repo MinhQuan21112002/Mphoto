@@ -5,78 +5,17 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
-import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
-import android.renderscript.Allocation;
-import android.renderscript.Element;
-import android.renderscript.RenderScript;
-import android.renderscript.ScriptIntrinsicBlur;
-import android.renderscript.ScriptIntrinsicConvolve3x3;
-import android.view.View;
-
-import org.opencv.android.Utils;
-import org.opencv.core.Mat;
-
+import android.util.Log;
 import java.io.File;
-import java.util.Arrays;
 import java.util.Objects;
-
 import jp.co.cyberagent.android.gpuimage.GPUImage;
-import jp.co.cyberagent.android.gpuimage.filter.GPUImageBilateralBlurFilter;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageFilter;
-import jp.co.cyberagent.android.gpuimage.filter.GPUImageGrayscaleFilter;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageSharpenFilter;
 
 
 public class ImageSolve {
     private final Context context;
-    public Bitmap smoothImageWithGPUImage(Bitmap originalBitmap, float distanceNormalizationFactor) {
-        GPUImage gpuImage = new GPUImage(context);
-        gpuImage.setImage(originalBitmap);
-
-        GPUImageBilateralBlurFilter bilateralFilter = new GPUImageBilateralBlurFilter();
-        bilateralFilter.setDistanceNormalizationFactor(distanceNormalizationFactor);
-
-        gpuImage.setFilter(bilateralFilter);
-        Bitmap smoothedBitmap = gpuImage.getBitmapWithFilterApplied();
-        smoothedBitmap.setDensity(originalBitmap.getDensity());
-        return smoothedBitmap;
-    }
-    public Bitmap applySharpening2(Bitmap src,float degree) {
-
-        float degreemid=degree*4+1;
-        float[] sharpenKernel = {
-                0,  -degree,  0,
-                -degree,  degreemid, -degree,
-                0,  -degree,  0
-        };
-        try {
-            // Tạo RenderScript và Allocation
-            RenderScript rs = RenderScript.create(context);
-            Allocation input = Allocation.createFromBitmap(rs, src);
-            Allocation output = Allocation.createTyped(rs, input.getType());
-
-            // Tạo ScriptIntrinsic convolve3x3 với kernel sharpening
-            ScriptIntrinsicConvolve3x3 convolveScript = ScriptIntrinsicConvolve3x3.create(rs, Element.U8_4(rs));
-            convolveScript.setCoefficients(sharpenKernel); // Áp dụng kernel vào ScriptIntrinsicConvolve3x3
-
-            // Áp dụng sharpening
-            convolveScript.setInput(input);
-            convolveScript.forEach(output);
-            output.copyTo(src); // Lưu ảnh đã xử lý lại vào ảnh nguồn
-
-            // Dọn dẹp RenderScript
-            rs.destroy();
-
-        } catch (Exception e) {
-            // Bắt lỗi nếu có
-            e.printStackTrace();
-        }
-
-        return src;
-    }
     public Bitmap resizeBitmapWithGPUImage(Context context, Bitmap originalBitmap, int newWidth) {
 
         // 원본 이미지의 DPI 가져오기
@@ -129,27 +68,6 @@ public class ImageSolve {
     public ImageSolve(Context context) {
         this.context = context;
     }
-    public Bitmap cropLeftRightToSquare(Bitmap bitmap) {
-        // Lấy kích thước của Bitmap gốc
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-
-        // Đảm bảo rằng chiều rộng lớn hơn chiều cao (để có thể cắt thành hình vuông)
-        if (width > height) {
-            // Xác định chiều dài cạnh hình vuông
-            int squareSize = height;
-
-            // Tính toán phần thừa cần cắt đều hai bên
-            int xOffset = (width - squareSize) / 2;
-
-            // Cắt hình vuông từ giữa
-            return Bitmap.createBitmap(bitmap, xOffset, 0, squareSize, height);
-        } else {
-            // Nếu chiều rộng nhỏ hơn hoặc bằng chiều cao, trả về Bitmap gốc
-            return bitmap;
-        }
-    }
-
     public Bitmap resizeBitmapMaintainAspect(Bitmap originalBitmap, int newWidth) {
         // Tính toán chiều cao mới giữ tỷ lệ ảnh
         int originalWidth = originalBitmap.getWidth();
@@ -159,26 +77,11 @@ public class ImageSolve {
         // Sử dụng createScaledBitmap để thay đổi kích thước ảnh
         return Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true);
     }
-    Bitmap cropLeftAndRight(Bitmap originalBitmap, int cropPercentage) {
-        // 원본 이미지의 폭과 높이
-        int width = originalBitmap.getWidth();
-        int height = originalBitmap.getHeight();
-
-        // 잘라낼 크기 계산 (폭의 cropPercentage%)
-        int cropWidth = (int) (width * cropPercentage / 100.0f);
-
-        // 새로 남길 이미지의 폭과 시작점
-        int newWidth = width - 2 * cropWidth;
-        int startX = cropWidth;
-
-        // 이미지 자르기
-        return Bitmap.createBitmap(originalBitmap, startX, 0, newWidth, height);
-    }
-
     public Bitmap convertToGrayscale(Bitmap original) {
         // 원본 Bitmap의 DPI 가져오기 및 포맷 확인
         int dpi = original.getDensity();
-        Bitmap.Config config = original.getConfig() != null ? original.getConfig() : Bitmap.Config.ALPHA_8;
+        original.getConfig();
+        Bitmap.Config config = original.getConfig();
 
         // 새로운 Bitmap 생성
         Bitmap grayscaleBitmap = Bitmap.createBitmap(
@@ -209,7 +112,8 @@ public class ImageSolve {
     public Bitmap convertALPHA8(Bitmap original) {
         // 원본 Bitmap의 DPI 가져오기 및 포맷 확인
         int dpi = original.getDensity();
-        Bitmap.Config config = original.getConfig() != null ? original.getConfig() : Bitmap.Config.ALPHA_8;
+        original.getConfig();
+        Bitmap.Config config = original.getConfig();
 
         // 새로운 Bitmap 생성
         Bitmap grayscaleBitmap = Bitmap.createBitmap(
@@ -233,61 +137,6 @@ public class ImageSolve {
 
         // 변환된 Bitmap 반환
         return grayscaleBitmap;
-    }
-
-    public Bitmap convertToGrayscale2(Context context, Bitmap inputBitmap) {
-        // GPUImage 초기화
-        GPUImage gpuImage = new GPUImage(context);
-
-        // 입력 이미지 설정
-        gpuImage.setImage(inputBitmap);
-
-        // 그레이스케일 필터 적용
-        gpuImage.setFilter(new GPUImageGrayscaleFilter());
-
-        // 필터가 적용된 Bitmap 생성
-        Bitmap outputBitmap = gpuImage.getBitmapWithFilterApplied();
-
-        // DPI 설정 유지
-        outputBitmap.setDensity(inputBitmap.getDensity());
-
-        // 결과 Bitmap 반환
-        return outputBitmap;
-    }
-
-    public static Bitmap adjustContrast(Bitmap inputBitmap, double alpha) {
-        // Chuyển Bitmap sang Mat
-        Mat mat = new Mat();
-        Utils.bitmapToMat(inputBitmap, mat);
-
-        // Tạo Mat mới để lưu kết quả
-        Mat adjustedMat = new Mat();
-
-        // Áp dụng thay đổi contrast
-        mat.convertTo(adjustedMat, -1, alpha, 0);
-
-        // Chuyển Mat kết quả về Bitmap
-        Bitmap outputBitmap = Bitmap.createBitmap(adjustedMat.cols(), adjustedMat.rows(), inputBitmap.getConfig());
-        Utils.matToBitmap(adjustedMat, outputBitmap);
-
-        return outputBitmap;
-    }
-    public static Bitmap adjustBrightness(Bitmap inputBitmap, double beta) {
-        // Chuyển Bitmap sang Mat
-        Mat mat = new Mat();
-        Utils.bitmapToMat(inputBitmap, mat);
-
-        // Tạo Mat mới để lưu kết quả
-        Mat adjustedMat = new Mat();
-
-        // Áp dụng thay đổi brightness
-        mat.convertTo(adjustedMat, -1, 1, beta);
-
-        // Chuyển Mat kết quả về Bitmap
-        Bitmap outputBitmap = Bitmap.createBitmap(adjustedMat.cols(), adjustedMat.rows(), inputBitmap.getConfig());
-        Utils.matToBitmap(adjustedMat, outputBitmap);
-
-        return outputBitmap;
     }
     public Bitmap adjustBrightness(Bitmap original, int brightness) {
         ColorMatrix matrix = new ColorMatrix();
@@ -323,60 +172,21 @@ public class ImageSolve {
         return adjustedBitmap;
     }
     public void clearCache() {
-            File cacheDir = context.getCacheDir(); // Lấy thư mục cache
+        File cacheDir = context.getCacheDir(); // Lấy thư mục cache
         if (cacheDir != null && cacheDir.isDirectory()) {
             // Lấy danh sách các tệp trong thư mục cache và xóa từng tệp
             for (File file : Objects.requireNonNull(cacheDir.listFiles())) {
                 if (file.isFile()) {
-                    file.delete();
+                    boolean isDeleted = file.delete(); // Kiểm tra kết quả xóa tệp
+                    if (isDeleted) {
+                        // Tệp xóa thành công
+                        Log.d("ClearCache", "Deleted file: " + file.getName());
+                    } else {
+                        // Xóa tệp thất bại
+                        Log.d("ClearCache", "Failed to delete file: " + file.getName());
+                    }
                 }
             }
         }
     }
-
-
-    public Bitmap transform(Bitmap toTransform) {
-        // Tạo một màu sắc để chuyển thành ảnh đen trắng
-        ColorMatrix colorMatrix = new ColorMatrix();
-        colorMatrix.setSaturation(0); // Chuyển sang trắng đen (saturation = 0)
-
-        // Áp dụng bộ lọc màu sắc vào ảnh
-        Paint paint = new Paint();
-        paint.setColorFilter(new ColorMatrixColorFilter(colorMatrix));
-
-        // Tạo ảnh mới với bộ lọc đã áp dụng
-        Bitmap result = Bitmap.createBitmap(toTransform.getWidth(), toTransform.getHeight(), toTransform.getConfig());
-        Canvas canvas = new Canvas(result);
-        canvas.drawBitmap(toTransform, 0, 0, paint);
-
-        return result;
-    }
-    public Bitmap viewToBitmap(View view) {
-        // Đặt kích thước cho View (nếu cần)
-        view.measure(
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        );
-        view.layout(0, 0, view.getMeasuredWidth(), view.getMeasuredHeight());
-
-        // Tạo Bitmap từ View
-        Bitmap bitmap = Bitmap.createBitmap(view.getMeasuredWidth(), view.getMeasuredHeight(), Bitmap.Config.ALPHA_8);
-        Canvas canvas = new Canvas(bitmap);
-        view.draw(canvas);
-        return bitmap;
-    }
-    public Bitmap drawableToBitmap(Drawable drawable) {
-        // Kiểm tra nếu drawable là BitmapDrawable
-        if (drawable instanceof BitmapDrawable) {
-            return ((BitmapDrawable) drawable).getBitmap();
-        }
-
-        // Nếu không phải BitmapDrawable, bạn có thể chuyển đổi thông qua Canvas
-        Bitmap bitmap = Bitmap.createBitmap(drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight(), Bitmap.Config.ALPHA_8);
-        Canvas canvas = new Canvas(bitmap);
-        drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
-        drawable.draw(canvas);
-        return bitmap;
-    }
-
 }

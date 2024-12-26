@@ -6,83 +6,99 @@
     android:orientation="vertical"
     tools:context="com.sdk.esc.Activity_Camera2">
 
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:layout_marginStart="60dp" >
     <!-- TextureView cho preview Camera2 -->
     <!-- FrameLayout hiển thị bên phải TextureView -->
-    <TextureView
-        android:id="@+id/texture"
-        android:layout_width="789dp"
-        android:layout_height="match_parent"
-        android:layout_alignEnd="@+id/imageView" />
-
-    <ImageView
-        android:id="@+id/imageView"
-        android:layout_width="789dp"
-        android:layout_height="match_parent"
-        android:layout_marginEnd="-9dp" />
-
-    <TextView
-        android:id="@+id/countdownTextManual"
+    <RelativeLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignEnd="@+id/texture"
-        android:layout_alignBottom="@+id/texture"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentTop="true"
-        android:layout_marginStart="297dp"
-        android:layout_marginTop="153dp"
-        android:layout_marginEnd="252dp"
-        android:layout_marginBottom="134dp"
-        android:text="3"
-        android:textColor="#B0B0B0"
-        android:textSize="300sp" />
+        >
 
-    <FrameLayout
-        android:id="@+id/chang_frame"
-        android:layout_width="111dp"
-        android:layout_height="match_parent"
-        android:layout_marginStart="0dp"
-        android:layout_marginEnd="-20dp"
-        android:layout_toStartOf="@+id/frame_layout_manual"
-        android:layout_toEndOf="@+id/texture"
-        android:background="@color/ps_color_white"
-        android:visibility="visible" >
+        <TextureView
+            android:id="@+id/texture"
+            android:layout_width="736dp"
+            android:layout_height="552dp"
+            android:layout_alignEnd="@+id/imageView"
+         />
 
-        <ImageButton
-            android:id="@+id/button_up"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_gravity="center_horizontal|top"
-            android:contentDescription="@string/settings"
-            android:scaleType="centerCrop"
-            android:src="@drawable/up_button"
-            android:layout_marginTop="200dp"
-            android:background="@drawable/button_hover_effect"
-            app:tint="#070707" />
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_width="736dp"
+            android:layout_height="552dp"/>
 
-        <ImageButton
-            android:id="@+id/button_list"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_gravity="center_horizontal|bottom"
-            android:contentDescription="@string/settings"
-            android:scaleType="centerCrop"
-            android:src="@drawable/list"
-            android:layout_marginBottom="330dp"
-            android:background="@drawable/button_hover_effect"
-            app:tint="#070707" />
-        <ImageButton
-            android:id="@+id/button_down"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_gravity="center_horizontal|bottom"
-            android:contentDescription="@string/settings"
-            android:scaleType="centerCrop"
-            android:src="@drawable/down_butotn"
-            android:layout_marginBottom="200dp"
-            android:background="@drawable/button_hover_effect"
-            app:tint="#070707" />
-    </FrameLayout>
+        <TextView
+            android:id="@+id/countdownTextManual"
+            android:layout_width="299dp"
+            android:layout_height="302dp"
+            android:layout_alignEnd="@+id/texture"
+            android:layout_alignBottom="@+id/texture"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentTop="true"
+            android:layout_marginStart="273dp"
+            android:layout_marginTop="153dp"
+            android:layout_marginEnd="231dp"
+            android:layout_marginBottom="146dp"
+            android:text="  3"
+            android:textColor="#B0B0B0"
+            android:textSize="200sp" />
 
+    </RelativeLayout>
+
+        <FrameLayout
+            android:id="@+id/chang_frame"
+            android:layout_width="match_parent"
+            android:layout_height="150dp"
+            android:background="@color/ps_color_white"
+            android:visibility="visible">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:weightSum="3">
+
+                <ImageButton
+                    android:id="@+id/button_up"
+                    android:layout_width="200dp"
+                    android:layout_height="100dp"
+                    android:background="@drawable/button_hover_effect"
+                    android:contentDescription="@string/settings"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/left"
+                    app:tint="#070707" />
+
+                <ImageButton
+                    android:id="@+id/button_list"
+                    android:layout_width="99dp"
+                    android:layout_height="100dp"
+                    android:background="@drawable/button_hover_effect"
+                    android:contentDescription="@string/settings"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/list2"
+                    app:tint="#070707" />
+
+                <ImageButton
+                    android:id="@+id/button_down"
+                    android:layout_width="200dp"
+                    android:layout_height="100dp"
+                    android:background="@drawable/button_hover_effect"
+                    android:contentDescription="@string/settings"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/right"
+                    app:tint="#070707" />
+            </LinearLayout>
+
+        </FrameLayout>
+
+
+    </LinearLayout>
 
     <FrameLayout
         android:id="@+id/frame_layout_manual"
@@ -158,8 +174,8 @@
 
                 <ImageView
                     android:id="@+id/imageViewPreview"
-                    android:layout_width="300dp"
-                    android:layout_height="250dp"
+                    android:layout_width="304dp"
+                    android:layout_height="228dp"
                     android:layout_marginTop="16dp"
                     android:contentDescription="Photo Preview"
 

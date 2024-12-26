@@ -1,10 +1,7 @@
 package com.sdk.esc;
-
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
-import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -19,7 +16,6 @@ import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
-import android.graphics.drawable.Drawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -64,7 +60,6 @@ import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
-import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
@@ -100,16 +95,14 @@ import print.Print;
 
 public class Activity_Camera2_Manual extends AppCompatActivity {
 
-
     ImageSolve imgSolve;
     private int counterTime=1;
     LocalDateTime current;
     private CameraDevice cameraDevice;
     private CaptureRequest.Builder captureRequestBuilder;
     private static final String TAG = "AndroidCameraApi";
-    private ProgressDialog dialog;
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
-    private Handler handler;
+    public Handler handler;
     // Button cho capture ảnh
 
     // preview camera
@@ -363,7 +356,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             String encodedBitmap = bitmapList.get(index);
             byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
             Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-            frame.setImageBitmap(bitmap); // Cập nhật ImageView
+
+            // Tính toán kích thước mới theo tỷ lệ 16:10
+            int originalWidth = bitmap.getWidth();
+            int targetHeight = (int) (originalWidth * (3.0 / 4.0));
+
+            // Resize bitmap
+            Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, targetHeight, true);
+
+            // Set resized bitmap vào ImageView
+            frame.setImageBitmap(resizedBitmap);
         }
     }
     private void saveCurrentIndex(int index) {
@@ -540,6 +542,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                     try {
                                         InputStream inputStream = getContentResolver().openInputStream(uri); // Open stream from URI
                                         Bitmap image = BitmapFactory.decodeStream(inputStream); // Decode to Bitmap
+                                        assert inputStream != null;
                                         inputStream.close(); // Close the stream
 
                                         // Resize image to reduce memory usage
@@ -896,6 +899,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 // Mat을 Bitmap으로 변환
         Bitmap processedBitmap = Bitmap.createBitmap(matBlurred.cols(), matBlurred.rows(), Bitmap.Config.ARGB_8888);
+        Log.d("Bitmap Dimensions", "Width: " + processedBitmap.getWidth() + ", Height: " + processedBitmap.getHeight());
+
         Utils.matToBitmap(matBlurred, processedBitmap);
         float widthMm = 80; // 출력 폭 (mm)
         int widthPixels = (int) (widthMm * dpi / 25.4);
@@ -942,7 +947,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
 // Bitmap đã xử lý (adjustedBitmap2[0])
         Bitmap processedBitmap2 = adjustedBitmap2[0];
-        processedBitmap2=imgSolve.cropLeftRightToSquare(processedBitmap2);
+        //processedBitmap2=imgSolve.cropLeftRightToSquare(processedBitmap2);
         processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
         int compensation=0;
 // Phóng to processedBitmap2
@@ -958,7 +963,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
 
 
-        // compensation=65 android 14, compensation=0 android 11
+        // compensation=70 android 14, compensation=0 android 11
 // Tạo Bitmap mới để kết hợp
         Bitmap combinedBitmap = Bitmap.createBitmap(
                 processedBitmap2.getWidth()+compensation,
@@ -1057,10 +1062,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
     public void printImage(final Bitmap bitmap, final int light, final int size,
                            final boolean isRotate, final int sype) {
-        dialog = new ProgressDialog(Activity_Camera2_Manual.this);
-        dialog.setMessage("Printing.....");
-        dialog.setProgress(100);
-        dialog.show();
+
 
         executorService.execute(() -> {
             Bitmap bitmapPrint = bitmap;
@@ -1083,12 +1085,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
             bitmap.recycle();
             bitmapPrint.recycle();
-            dialog.cancel();
         });
     }
 
     public void onClickPrint() {
-        if (!checkClick.isClickEvent()) return;
+        if (checkClick.isClickEvent()) return;
         int iLeftMargin = 0;
         String formatted="";
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -1099,10 +1100,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         try {
             String sText = counterTime +"   " +
                     "                                 "+formatted+"     ";
-
-
-
-
 
             int iAlignment = 0;
             int iAttribute;
@@ -1147,10 +1144,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             } catch (Exception e) {
                 handler.sendEmptyMessage(PRINT_FAILURE);
             }
-
-
             bitmapPrint.recycle();
-            dialog.cancel();
         });
     }
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
@@ -1167,25 +1161,35 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         }
         private void configureTransform(int viewWidth, int viewHeight) {
-            if (null == textureView || null == imageDimension) {
+            if (textureView == null || imageDimension == null) {
                 return;
             }
+
             int rotation = getWindowManager().getDefaultDisplay().getRotation();
             Matrix matrix = new Matrix();
-            RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);
-            RectF bufferRect = new RectF(0, 0, imageDimension.getHeight(), imageDimension.getWidth());
+
+            RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);       // Kích thước TextureView
+            RectF bufferRect = new RectF(0, 0, imageDimension.getHeight(), imageDimension.getWidth()); // Kích thước ảnh từ camera
+
             float centerX = viewRect.centerX();
             float centerY = viewRect.centerY();
-            if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
+
+            if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
                 bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
-                matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
-                float scale = Math.max((float) viewHeight / imageDimension.getHeight(),
-                        (float) viewWidth / imageDimension.getWidth());
-                matrix.postScale(scale, scale, centerX, centerY);
-                matrix.postRotate(90 * (rotation - 2), centerX, centerY);
+                matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL); // Fill toàn bộ view
+                float scale = Math.max(
+                        (float) viewHeight / imageDimension.getHeight(),
+                        (float) viewWidth / imageDimension.getWidth()
+                );
+                matrix.postScale(scale, scale, centerX, centerY);  // Scale hình ảnh để vừa vặn trong TextureView
+                matrix.postRotate(90 * (rotation - 2), centerX, centerY); // Rotate hình ảnh nếu cần
+            } else {
+                matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL); // Fill toàn bộ view
             }
+
             textureView.setTransform(matrix);
         }
+
 
 
         @Override
@@ -1202,7 +1206,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         @Override
         public void onOpened(@NonNull CameraDevice camera) {
             // Camera opened
-            Log.e(TAG, "onOpened");
+
             cameraDevice = camera;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
                 createCameraPreview();
@@ -1239,7 +1243,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
     private void takePicture() {
         if (null == cameraDevice) {
-            Log.e(TAG, "cameraDevice is null");
             return;
         }
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -1256,7 +1259,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 }
             }
             ImageReader reader = ImageReader.newInstance(480,640, ImageFormat.JPEG, 1);
-            // Kiểm tra độ phân giải tối đa mà camera hỗ trợ
+
 
             // Thiết lập các Surface để sử dụng với camera
             List<Surface> outputSurfaces = new ArrayList<>(2);
