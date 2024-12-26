@@ -1,5 +1,6 @@
 package com.sdk.esc;
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -16,6 +17,7 @@ import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.graphics.drawable.Drawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -69,12 +71,6 @@ import com.luck.picture.lib.basic.PictureSelector;
 import com.luck.picture.lib.config.SelectMimeType;
 import com.luck.picture.lib.entity.LocalMedia;
 import com.luck.picture.lib.interfaces.OnResultCallbackListener;
-
-import org.opencv.android.Utils;
-import org.opencv.core.Mat;
-import org.opencv.imgproc.CLAHE;
-import org.opencv.imgproc.Imgproc;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -95,18 +91,15 @@ import print.Print;
 
 public class Activity_Camera2_Manual extends AppCompatActivity {
 
-    ImageSolve imgSolve;
-    private int counterTime=1;
-    LocalDateTime current;
+    ImageSolve imgSolve; // Class for image processing
+    private int counterTime=1; // Using for counting number that we have captured
+    LocalDateTime current; // Using for calculating Date time now
     private CameraDevice cameraDevice;
     private CaptureRequest.Builder captureRequestBuilder;
     private static final String TAG = "AndroidCameraApi";
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
     public Handler handler;
-    // Button cho capture ảnh
-
-    // preview camera
-    TextView countdown;
+    TextView countdown; // Textview for counting down before capture image ( 3 2 1 )
     private MediaPlayer countdownSound;
     private MediaPlayer shutterSound;
     private TextureView textureView;
@@ -153,8 +146,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+
+        //initialize the interface
         setContentView(R.layout.activity_camera2_manual);
-        SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
         buttonUp=findViewById(R.id.button_up);
         buttonDown=findViewById(R.id.button_down);
         buttonList=findViewById(R.id.button_list);
@@ -167,18 +162,23 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         imageViewSecond=findViewById(R.id.imageViewSecond);
         countdown= findViewById(R.id.countdownTextManual);
         frame=findViewById(R.id.imageView);
+        ImageButton settingButton = findViewById(R.id.button_settings);
+        ImageButton backButton = findViewById(R.id.button_back);
+        //-----------------------------------------------------------------------------
 
-
+        // Get value for iso and exposure time that saved in SharedPreferences
+        SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
+        String encodedBitmap = sharedPreferences.getString("bitmap_key", null);
+        counterTime=sharedPreferences.getInt("counterTime", 1);
         imgSolve = new ImageSolve(this);
         btnPrint.setEnabled(false);
         btnCancel.setEnabled(false);
-
-        ImageButton settingButton = findViewById(R.id.button_settings);
-        ImageButton backButton = findViewById(R.id.button_back);
+        //-----------------------------------------------------------------------------
 
 
+        // Check the connected USB device as soon as the application starts -------------
         Intent intent = new Intent(ACTION_USB_PERMISSION);
         intent.setPackage(Activity_Camera2_Manual.this.getPackageName());
         IntentFilter filter = new IntentFilter();
@@ -189,7 +189,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
         UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
 
-        // Kiểm tra thiết bị USB đã kết nối ngay khi ứng dụng khởi động
         HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
         if (!deviceList.isEmpty()) {
             for (UsbDevice usbDevice : deviceList.values()) {
@@ -205,20 +204,21 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Activity_Camera2_Manual.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
+        //-----------------------------------------------------------------------------
 
 
+        // Check for behavior of textureview if you have connected Printer or not
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
         countdown.setVisibility(View.INVISIBLE);
         textureView.setOnClickListener(v -> {
 
-
             if (!Print.IsOpened()) {
                 Toast.makeText(Activity_Camera2_Manual.this, "Please connect to Printer", Toast.LENGTH_SHORT).show();
                 try {
-                    if(havingUsb)
+                    if(havingUsb)// Check if you have connected Printer or not
                     {
-                        connectUSB();
+                        connectUSB(); // If you not, it will call function connectUSB();
                     }
                 } catch (NumberFormatException e) {
                     Toast.makeText(getApplicationContext(), "Can't find Printer", Toast.LENGTH_SHORT).show();
@@ -226,18 +226,23 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
             }
             else{
-
+                // If you have did that , it will start capturing picture
                 startCountdown();
                 textureView.setEnabled(false);
             }
         });
+        //-----------------------------------------------------------------------------
 
+
+        // function for behavior of clicking setting button
         settingButton.setOnClickListener(v -> showSettingDialog());
+        // function for behavior of clicking back Button
         backButton.setOnClickListener(v -> {
             Intent intent2 = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class); // Chuyển đến SettingsActivity
             startActivity(intent2); // Bắt đầu Activity mới
         });
-        String encodedBitmap = sharedPreferences.getString("bitmap_key", null);
+
+
         if (encodedBitmap != null) {
             byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
             image= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
@@ -252,9 +257,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         String jsonString = preferences.getString("bitmap_list", "[]");
         Gson gson = new Gson();
         bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+        Toast.makeText(getApplicationContext(), "size now: " + bitmapList.size(), Toast.LENGTH_SHORT).show();
         currentIndex= preferences.getInt("current_index", 0);
         updateImageView(currentIndex);
-        buttonUp.setOnClickListener(v -> {
+
+        // Processing with "Up" button
+        buttonDown.setOnClickListener(v -> {
+            String jsonString2 = preferences.getString("bitmap_list", "[]");
+            Gson gson2 = new Gson();
+            bitmapList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
             if (currentIndex < bitmapList.size() - 1) { // Không vượt quá danh sách
                 currentIndex++;
                 updateImageView(currentIndex);
@@ -262,8 +273,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
         });
 
-// Xử lý nút "Down"
-        buttonDown.setOnClickListener(v -> {
+        // Processing with "Down" button
+        buttonUp.setOnClickListener(v -> {
+            String jsonString2 = preferences.getString("bitmap_list", "[]");
+            Gson gson2 = new Gson();
+            bitmapList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
             if (currentIndex > 0) { // Không nhỏ hơn 0
                 currentIndex--;
                 updateImageView(currentIndex);
@@ -343,12 +357,18 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         decrease.setOnClickListener(v -> {
             counterTime--; // Giảm giá trị
             numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putInt("counterTime", counterTime);
+            editor.apply();
         });
 
         // Xử lý sự kiện khi nhấn nút tăng
         increase.setOnClickListener(v -> {
             counterTime++; // Tăng giá trị
             numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
+            SharedPreferences.Editor editor = sharedPreferences.edit();
+            editor.putInt("counterTime", counterTime);
+            editor.apply();
         });
     }
     private void updateImageView(int index) {
@@ -522,7 +542,93 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
 
         // Display the image list in RecyclerView
-        ImageListAdapter adapter = new ImageListAdapter(this, bitmapList);
+        ImageListAdapter adapter = new ImageListAdapter(this, bitmapList, position -> {
+            // Kiểm tra nếu vị trí bị xóa trùng với hình ảnh đang hiển thị
+            SharedPreferences preferences2 = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+            String jsonString2 = preferences2.getString("bitmap_list", "[]");
+            Gson gson2 = new Gson();
+            bitmapList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
+            if(bitmapList.isEmpty()) {
+                @SuppressLint("UseCompatLoadingForDrawables")
+                Drawable noel = getResources().getDrawable(R.drawable.nothing, null);
+                Bitmap bitmapFrameNull = imgSolve.drawableToBitmap(noel);
+                frame.setImageBitmap(bitmapFrameNull);
+                return;
+            }
+            if (position == currentIndex) { // currentDisplayedImagePosition là vị trí hình ảnh hiện tại trong ImageView
+
+
+                String encodedBitmap;
+                if(position==0) {
+                    encodedBitmap = bitmapList.get(position);
+                    SharedPreferences.Editor editor = preferences.edit();
+                    editor.putInt("current_index", currentIndex);
+                    editor.apply();
+                }
+                else{
+                    currentIndex=position-1;
+                    encodedBitmap = bitmapList.get(position-1);
+                    SharedPreferences.Editor editor = preferences.edit();
+                    editor.putInt("current_index", currentIndex);
+                    editor.apply();
+                }
+                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+
+                // Tính toán kích thước mới theo tỷ lệ 16:10
+                int originalWidth = bitmap.getWidth();
+                int targetHeight = (int) (originalWidth * (3.0 / 4.0));
+
+                // Resize bitmap
+                Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, targetHeight, true);
+
+                // Set resized bitmap vào ImageView
+                frame.setImageBitmap(resizedBitmap);
+
+            }
+
+           else {
+
+                String encodedBitmap ;
+                if(position==0) {
+                    currentIndex=currentIndex-1;
+                    encodedBitmap = bitmapList.get(currentIndex);
+                    SharedPreferences.Editor editor = preferences.edit();
+                    editor.putInt("current_index", currentIndex);
+                    editor.apply();
+                } else {
+                    if(currentIndex==0) {
+                        encodedBitmap = bitmapList.get(currentIndex);
+                        SharedPreferences.Editor editor = preferences.edit();
+                        editor.putInt("current_index", currentIndex);
+                        editor.apply();
+                    }
+                    else{
+                        currentIndex=currentIndex-1;
+                        encodedBitmap = bitmapList.get(currentIndex);
+                        SharedPreferences.Editor editor = preferences.edit();
+                        editor.putInt("current_index", currentIndex);
+                        editor.apply();
+                    }
+                }
+                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+                Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+
+                // Tính toán kích thước mới theo tỷ lệ 16:10
+                int originalWidth = bitmap.getWidth();
+                int targetHeight = (int) (originalWidth * (3.0 / 4.0));
+
+                // Resize bitmap
+                Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, targetHeight, true);
+
+                // Set resized bitmap vào ImageView
+                frame.setImageBitmap(resizedBitmap);
+            }
+
+            Toast.makeText(getApplicationContext(), "Size sau: " + bitmapList.size(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(getApplicationContext(), "position chon xoa: " + position, Toast.LENGTH_SHORT).show();
+            Toast.makeText(getApplicationContext(), "index hiện tại: " + currentIndex, Toast.LENGTH_SHORT).show();
+        });
         recyclerView.setAdapter(adapter);
 
         buttonAdd.setOnClickListener(v -> {
@@ -552,7 +658,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
                                         // Convert image to grayscale
                                         image = imgSolve.convertALPHA8(image);
+                                        // Tính toán kích thước mới theo tỷ lệ 16:10
+                                        int originalWidth = image.getWidth();
+                                        int newHeight = (int) (originalWidth * (3.0 / 4.0));
 
+                                        // Resize bitmap
+                                        Bitmap resizedBitmap = Bitmap.createScaledBitmap(image, originalWidth, newHeight, true);
+                                        frame.setImageBitmap(resizedBitmap);
+                                        currentIndex=bitmapList.size();
                                         // Convert Bitmap to Base64
                                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
                                         image.compress(Bitmap.CompressFormat.PNG, 100, baos); // Compress the image to reduce file size
@@ -570,6 +683,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                         SharedPreferences.Editor editor = preferences.edit();
                                         editor.putString("bitmap_list", gson.toJson(bitmapList));
                                         editor.apply();
+
                                         AlertDialog dialog = (AlertDialog) v.getTag();
                                         if (dialog != null) {
                                             dialog.dismiss();  // Close the current dialog
@@ -769,7 +883,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             updateExposure(exposureLevels[1]);
             dialog.dismiss();
             reloadDialog(); // Reload lại dialog
-
         });
 
         exposureText3.setOnClickListener(v -> {
@@ -777,7 +890,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             updateExposure(exposureLevels[2]);
             dialog.dismiss();
             reloadDialog(); // Reload lại dialog
-
         });
 
         exposureText4.setOnClickListener(v -> {
@@ -785,7 +897,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             updateExposure(exposureLevels[3]);
             dialog.dismiss();
             reloadDialog(); // Reload lại dialog
-
         });
 
         exposureText5.setOnClickListener(v -> {
@@ -793,7 +904,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             updateExposure(exposureLevels[4]);
             dialog.dismiss();
             reloadDialog(); // Reload lại dialog
-
         });
 
         exposureText6.setOnClickListener(v -> {
@@ -801,7 +911,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             updateExposure(exposureLevels[5]);
             dialog.dismiss();
             reloadDialog(); // Reload lại dialog
-
         });
 
         exposureText7.setOnClickListener(v -> {
@@ -809,11 +918,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             updateExposure(exposureLevels[6]);
             dialog.dismiss();
             reloadDialog(); // Reload lại dialog
-
         });
+
+        // Thêm nút "Thoát" với setNegativeButton
+        builder.setNegativeButton("Thoát", (dialog1, which) -> dialog1.dismiss());
+
         builder.setPositiveButton("OK", (dialog1, which) -> dialog1.dismiss());
         dialog.show();
     }
+
 
 
     private void reloadDialog() {
@@ -821,7 +934,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
 
     // Hiển thị dialog chọn ISO
-
 
     private void applyISO(String iso) {
         try {
@@ -873,47 +985,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
     private void setPrintDialog2(String path) {
 
-
         Bitmap origin = BitmapFactory.decodeFile(path);
-
         int dpi = origin.getDensity();
         if (dpi == 0) dpi = 203; // 기본 DPI 설정
-
-        // Bitmap을 Mat 객체로 변환
-        origin = origin.copy(Bitmap.Config.ARGB_8888, true); // Bitmap 포맷을 ARGB_8888로 변환
-        Mat matOriginal = new Mat();
-        Utils.bitmapToMat(origin, matOriginal);
-
-        // 흑백 이미지로 변환
-        Mat matGray = new Mat();
-        Imgproc.cvtColor(matOriginal, matGray, Imgproc.COLOR_BGR2GRAY);
-
-        // CLAHE 적용
-        Mat matCLAHE = new Mat();
-        CLAHE clahe = Imgproc.createCLAHE(0.4, new org.opencv.core.Size(3, 3));
-        clahe.apply(matGray, matCLAHE);
-
-// *가우시안 블러 적용*
-        Mat matBlurred = new Mat();
-        Imgproc.GaussianBlur(matCLAHE, matBlurred, new org.opencv.core.Size(3, 3), 0);
-
-// Mat을 Bitmap으로 변환
-        Bitmap processedBitmap = Bitmap.createBitmap(matBlurred.cols(), matBlurred.rows(), Bitmap.Config.ARGB_8888);
-        Log.d("Bitmap Dimensions", "Width: " + processedBitmap.getWidth() + ", Height: " + processedBitmap.getHeight());
-
-        Utils.matToBitmap(matBlurred, processedBitmap);
-        float widthMm = 80; // 출력 폭 (mm)
-        int widthPixels = (int) (widthMm * dpi / 25.4);
-
-        Bitmap resizedBitmap = imgSolve.resizeBitmapWithGPUImage(Activity_Camera2_Manual.this, processedBitmap, widthPixels);
-
+        Bitmap resizedBitmap = imgSolve.processingImage(origin);
         AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
         bmp.get().setDensity(dpi);
         frameLayoutPopup=findViewById(R.id.frame_layout);
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
         imageViewPreview = findViewById(R.id.imageViewPreview);
-
 
         runOnUiThread(() -> {
             try {
@@ -933,16 +1014,30 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         float[] contrastValue = {contrast};
         Bitmap[] adjustedBitmap2 = {null};
 
-
         adjustedBitmap2[0] = imgSolve.adjustBrightness(bmp.get(), lightValue1[0]);
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
-        
-        String encodedBitmap = bitmapList.get(currentIndex);
 
-// Decode Base64 để lấy Bitmap
-        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-        Bitmap bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+        @SuppressLint("UseCompatLoadingForDrawables")
+        Drawable noel = getResources().getDrawable(R.drawable.nothing, null);
+        Bitmap bitmapFrameNull = imgSolve.drawableToBitmap(noel);
+
+        Bitmap bitmapFrame;
+// Kiểm tra xem bitmapList có phần tử không trước khi lấy currentIndex
+        if (bitmapList != null && !bitmapList.isEmpty()) {
+            String encodedBitmap = bitmapList.get(currentIndex);
+
+            if (encodedBitmap == null) {
+                bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu null
+            } else {
+                // Decode Base64 để lấy Bitmap
+                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+                bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+            }
+        } else {
+            bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu bitmapList trống
+        }
+
         bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
         bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
 // Bitmap đã xử lý (adjustedBitmap2[0])
@@ -1011,8 +1106,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
                 imgSolve.clearCache();
                 counterTime++;
+                SharedPreferences preferences2 = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
+                SharedPreferences.Editor editor = preferences2.edit();
+                editor.putInt("counterTime", counterTime);
+                editor.apply();
                 runOnUiThread(() -> {
                     try {
+                        numberCount.setText(String.valueOf(counterTime));
                         imageViewPreview.setImageResource(R.drawable.imagepreview);
                     } catch (Exception e) {
                         Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);

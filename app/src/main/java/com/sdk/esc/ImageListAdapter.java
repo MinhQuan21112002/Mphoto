@@ -15,15 +15,22 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import java.util.List;
 public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.ImageViewHolder> {
-    private final List<String> imageList;
+    private List<String> imageList;
     private final Context context;
 
-    public ImageListAdapter(Context context, List<String> imageList) {
+    private final OnImageDeleteListener onImageDeleteListener;
+
+    public ImageListAdapter(Context context, List<String> imageList, OnImageDeleteListener onImageDeleteListener) {
         this.context = context;
         this.imageList = imageList;
+        this.onImageDeleteListener = onImageDeleteListener;
+    }
+    public interface OnImageDeleteListener {
+        void onImageDeleted(int position);
     }
 
     @NonNull
@@ -35,6 +42,10 @@ public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.Imag
 
     @Override
     public void onBindViewHolder(@NonNull ImageViewHolder holder, int position) {
+        SharedPreferences preferences2 = context.getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        String jsonString2 = preferences2.getString("bitmap_list", "[]");
+        Gson gson2 = new Gson();
+        imageList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
         String encodedBitmap = imageList.get(position);
 
         // Decode Base64 string to Bitmap
@@ -47,21 +58,23 @@ public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.Imag
         // Handle "Delete" button click
         holder.buttonDelete.setOnClickListener(v -> {
             if (position < imageList.size() && position >= 0) {
-                // Remove the image from the list
+                // Xóa hình ảnh khỏi danh sách
                 imageList.remove(position);
-                notifyItemRemoved(position); // Notify RecyclerView item removed
 
-                // Save updated list back to SharedPreferences
+                // Lưu danh sách cập nhật vào SharedPreferences
                 saveImageListToPreferences();
-            } else {
-                // If position is not valid, attempt to remove item at position - 1
-                if (position - 1 >= 0 && position - 1 < imageList.size()) {
-                    imageList.remove(position - 1);
-                    notifyItemRemoved(position - 1); // Notify RecyclerView item removed
-                    saveImageListToPreferences(); // Save updated list back
+
+                // Cập nhật RecyclerView
+                notifyItemRemoved(position);
+
+                // Gọi callback nếu cần
+                if (onImageDeleteListener != null) {
+                    onImageDeleteListener.onImageDeleted(position);
                 }
             }
         });
+
+
     }
 
 
@@ -79,6 +92,7 @@ public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.Imag
         editor.putString("bitmap_list", json);
         editor.apply();
     }
+
 
     public static class ImageViewHolder extends RecyclerView.ViewHolder {
         ImageView imageView;

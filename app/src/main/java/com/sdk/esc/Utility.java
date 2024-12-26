@@ -13,7 +13,7 @@ import android.graphics.Paint;
 public class Utility {
 
     public static Bitmap Tobitmap(Bitmap bitmap, int width, int height) {
-        // 입력 Bitmap의 DPI 및 포맷 확인
+        // 입력 Bitmap 의 DPI 및 포맷 확인
         int dpi = bitmap.getDensity();
         bitmap.getConfig();
         Bitmap.Config config = bitmap.getConfig();
@@ -30,11 +30,9 @@ public class Utility {
         paint.setDither(true); // Dithering 활성화
         canvas.drawBitmap(bitmap, null, new Rect(0, 0, target.getWidth(), target.getHeight()), paint);
 
-        // 리사이즈된 Bitmap 반환
+        // Bitmap 반환
         return target;
     }
-
-
 
     //width：目标宽度，pageWidthPoint：初始宽度，pageHeightPoint：初始高度
     public static int getHeight(int width, int pageWidthPoint, int pageHeightPoint) {

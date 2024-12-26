@@ -1,6 +1,7 @@
 package com.sdk.esc;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -15,6 +16,7 @@ import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.graphics.drawable.Drawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -71,10 +73,6 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import org.opencv.android.OpenCVLoader;
-import org.opencv.android.Utils;
-import org.opencv.core.Mat;
-import org.opencv.imgproc.CLAHE;
-import org.opencv.imgproc.Imgproc;
 
 public class Activity_Camera2 extends AppCompatActivity {
 
@@ -140,6 +138,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
         ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
         String encodedBitmap = sharedPreferences.getString("bitmap_key", null);
+        counterTime=sharedPreferences.getInt("counterTime", 1);
         if (encodedBitmap != null) {
             byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
             image= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
@@ -368,40 +367,13 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
     };
     private void Print(String path) {
-        Bitmap origin = BitmapFactory.decodeFile(path);
 
+        Bitmap origin = BitmapFactory.decodeFile(path);
         int dpi = origin.getDensity();
         if (dpi == 0) dpi = 203; // 기본 DPI 설정
-
-        // Bitmap을 Mat 객체로 변환
-        origin = origin.copy(Bitmap.Config.ARGB_8888, true); // Bitmap 포맷을 ARGB_8888로 변환
-        Mat matOriginal = new Mat();
-        Utils.bitmapToMat(origin, matOriginal);
-
-        // 흑백 이미지로 변환
-        Mat matGray = new Mat();
-        Imgproc.cvtColor(matOriginal, matGray, Imgproc.COLOR_BGR2GRAY);
-
-        // CLAHE 적용
-        Mat matCLAHE = new Mat();
-        CLAHE clahe = Imgproc.createCLAHE(0.4, new org.opencv.core.Size(3, 3));
-        clahe.apply(matGray, matCLAHE);
-
-// *가우시안 블러 적용*
-        Mat matBlurred = new Mat();
-        Imgproc.GaussianBlur(matCLAHE, matBlurred, new org.opencv.core.Size(3, 3), 0);
-
-// Mat을 Bitmap으로 변환
-        Bitmap processedBitmap = Bitmap.createBitmap(matBlurred.cols(), matBlurred.rows(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(matBlurred, processedBitmap);
-        float widthMm = 80; // 출력 폭 (mm)
-        int widthPixels = (int) (widthMm * dpi / 25.4);
-
-        Bitmap resizedBitmap = imgSolve.resizeBitmapWithGPUImage(Activity_Camera2.this, processedBitmap, widthPixels);
-
+        Bitmap resizedBitmap = imgSolve.processingImage(origin);
         AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
         bmp.get().setDensity(dpi);
-
 
         int light = 15;
         int[] lightValue1 = {light}; // Adjust brightness based on SeekBar progress
@@ -414,11 +386,25 @@ public class Activity_Camera2 extends AppCompatActivity {
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
 
-        String encodedBitmap = bitmapList.get(currentIndex);
+        @SuppressLint("UseCompatLoadingForDrawables")
+        Drawable noel = getResources().getDrawable(R.drawable.nothing, null);
+        Bitmap bitmapFrameNull = imgSolve.drawableToBitmap(noel);
 
-// Decode Base64 để lấy Bitmap
-        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-        Bitmap bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+        Bitmap bitmapFrame;
+// Kiểm tra xem bitmapList có phần tử không trước khi lấy currentIndex
+        if (bitmapList != null && !bitmapList.isEmpty()) {
+            String encodedBitmap = bitmapList.get(currentIndex);
+
+            if (encodedBitmap == null) {
+                bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu null
+            } else {
+                // Decode Base64 để lấy Bitmap
+                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
+                bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+            }
+        } else {
+            bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu bitmapList trống
+        }
         bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
         bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
 // Bitmap đã xử lý (adjustedBitmap2[0])
@@ -470,6 +456,11 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         imgSolve.clearCache();
         counterTime++;
+        SharedPreferences preferences2 = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences2.edit();
+        editor.putInt("counterTime", counterTime);
+        editor.apply();
+
 
     }
 

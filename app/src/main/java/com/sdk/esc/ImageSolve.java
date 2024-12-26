@@ -6,7 +6,15 @@ import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.util.Log;
+
+import org.opencv.android.Utils;
+import org.opencv.core.Mat;
+import org.opencv.imgproc.CLAHE;
+import org.opencv.imgproc.Imgproc;
+
 import java.io.File;
 import java.util.Objects;
 import jp.co.cyberagent.android.gpuimage.GPUImage;
@@ -16,6 +24,52 @@ import jp.co.cyberagent.android.gpuimage.filter.GPUImageSharpenFilter;
 
 public class ImageSolve {
     private final Context context;
+    public Bitmap processingImage(Bitmap origin) {
+        int dpi = origin.getDensity();
+        if (dpi == 0) dpi = 203; // 기본 DPI 설정
+
+        // Bitmap을 Mat 객체로 변환
+        origin = origin.copy(Bitmap.Config.ARGB_8888, true); // Bitmap 포맷을 ARGB_8888로 변환
+        Mat matOriginal = new Mat();
+        Utils.bitmapToMat(origin, matOriginal);
+
+        // 흑백 이미지로 변환
+        Mat matGray = new Mat();
+        Imgproc.cvtColor(matOriginal, matGray, Imgproc.COLOR_BGR2GRAY);
+
+        // CLAHE 적용
+        Mat matCLAHE = new Mat();
+        CLAHE clahe = Imgproc.createCLAHE(0.4, new org.opencv.core.Size(3, 3));
+        clahe.apply(matGray, matCLAHE);
+
+        // *가우시안 블러 적용*
+        Mat matBlurred = new Mat();
+        Imgproc.GaussianBlur(matCLAHE, matBlurred, new org.opencv.core.Size(3, 3), 0);
+
+        // Mat을 Bitmap으로 변환
+        Bitmap processedBitmap = Bitmap.createBitmap(matBlurred.cols(), matBlurred.rows(), Bitmap.Config.ARGB_8888);
+        Log.d("Bitmap Dimensions", "Width: " + processedBitmap.getWidth() + ", Height: " + processedBitmap.getHeight());
+
+        Utils.matToBitmap(matBlurred, processedBitmap);
+        float widthMm = 80; // 출력 폭 (mm)
+        int widthPixels = (int) (widthMm * dpi / 25.4);
+
+
+        return resizeBitmapWithGPUImage(context, processedBitmap, widthPixels);
+    }
+    public Bitmap drawableToBitmap(Drawable drawable) {
+        // Kiểm tra nếu drawable là BitmapDrawable
+        if (drawable instanceof BitmapDrawable) {
+            return ((BitmapDrawable) drawable).getBitmap();
+        }
+
+        // Nếu không phải BitmapDrawable, bạn có thể chuyển đổi thông qua Canvas
+        Bitmap bitmap = Bitmap.createBitmap(drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight(), Bitmap.Config.ALPHA_8);
+        Canvas canvas = new Canvas(bitmap);
+        drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+        drawable.draw(canvas);
+        return bitmap;
+    }
     public Bitmap resizeBitmapWithGPUImage(Context context, Bitmap originalBitmap, int newWidth) {
 
         // 원본 이미지의 DPI 가져오기
