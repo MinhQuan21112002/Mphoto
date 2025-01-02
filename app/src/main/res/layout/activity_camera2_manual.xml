@@ -11,7 +11,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:padding="16dp"
-        android:layout_marginStart="60dp" >
+        android:layout_marginStart="20dp" >
     <!-- TextureView cho preview Camera2 -->
     <!-- FrameLayout hiển thị bên phải TextureView -->
     <RelativeLayout
@@ -21,15 +21,15 @@
 
         <TextureView
             android:id="@+id/texture"
-            android:layout_width="736dp"
-            android:layout_height="552dp"
+            android:layout_width="6667dp"
+            android:layout_height="500dp"
             android:layout_alignEnd="@+id/imageView"
          />
 
         <ImageView
             android:id="@+id/imageView"
-            android:layout_width="736dp"
-            android:layout_height="552dp"/>
+            android:layout_width="667dp"
+            android:layout_height="500dp"/>
 
         <TextView
             android:id="@+id/countdownTextManual"
@@ -170,7 +170,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:gravity="center_vertical">
+                android:gravity="center">
 
                 <ImageView
                     android:id="@+id/imageViewPreview"
@@ -211,8 +211,22 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="Print" />
+
+
                 </LinearLayout>
 
+                <ImageButton
+                    android:id="@+id/button_back"
+                    android:layout_width="60dp"
+                    android:layout_height="60dp"
+                    android:layout_alignParentStart="true"
+                    android:layout_alignParentTop="true"
+                    android:layout_margin="16dp"
+                    android:background="@color/black"
+                    android:contentDescription="@string/settings"
+                    android:src="@drawable/back"
+                    android:scaleType="centerCrop"
+                    app:tint="#FFFFFF" />
             </LinearLayout>
         </LinearLayout>
     </FrameLayout>
@@ -220,27 +234,17 @@
     <!-- Button thực hiện việc cài đặt -->
     <ImageButton
         android:id="@+id/button_settings"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
         android:layout_alignParentEnd="true"
         android:layout_alignParentTop="true"
         android:layout_margin="16dp"
         android:background="@null"
         android:contentDescription="@string/settings"
-        android:src="@drawable/btn_setting" />
+        android:src="@drawable/btn_setting"
+        android:scaleType="fitCenter" />
 
     <!-- Button quay lại -->
-    <ImageButton
-        android:id="@+id/button_back"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentTop="true"
-        android:layout_margin="16dp"
-        android:background="@null"
-        android:contentDescription="@string/settings"
-        android:src="@drawable/back"
-        android:scaleType="centerCrop"
-        app:tint="#FFFFFF" />
+
 
 </RelativeLayout>

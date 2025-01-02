@@ -118,6 +118,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     boolean havingUsb=false;
     int currentIndex;
     List<String> bitmapList;
+    private int clickCount = 0;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -203,8 +204,15 @@ public class Activity_Camera2 extends AppCompatActivity {
         });
 
         settingButton.setOnClickListener(v -> {
-            Intent intent2 = new Intent(Activity_Camera2.this, Activity_Camera2_Manual.class); // Chuyển đến SettingsActivity
-            startActivity(intent2); // Bắt đầu Activity mới
+            clickCount++;
+
+            if (clickCount == 3) {
+                Intent intent2 = new Intent(Activity_Camera2.this, Activity_Camera2_Manual.class); // Chuyển đến SettingsActivity
+                startActivity(intent2); // Bắt đầu Activity mới
+            } else {
+                // Reset click count after a short delay or you can reset immediately
+                v.postDelayed(() -> clickCount = 0, 500); // Hoặc bạn có thể điều chỉnh thời gian delay
+            }
         });
 
         SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
@@ -506,6 +514,16 @@ public class Activity_Camera2 extends AppCompatActivity {
             String sText = counterTime +"   " +
                     "                                 "+formatted+"     ";
 
+            if(counterTime>99)
+            {
+                sText = counterTime +"   " +
+                        "                                "+formatted+"     ";
+            }
+            if(counterTime>999)
+            {
+                sText = counterTime +"   " +
+                        "                              "+formatted+"     ";
+            }
 
 
 

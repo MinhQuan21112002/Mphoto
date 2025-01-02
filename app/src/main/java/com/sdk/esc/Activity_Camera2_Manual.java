@@ -34,13 +34,14 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.media.Image;
 import android.media.ImageReader;
-import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.ParcelFileDescriptor;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
@@ -100,8 +101,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
     public Handler handler;
     TextView countdown; // Textview for counting down before capture image ( 3 2 1 )
-    private MediaPlayer countdownSound;
-    private MediaPlayer shutterSound;
     private TextureView textureView;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
@@ -227,7 +226,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
             else{
                 // If you have did that , it will start capturing picture
-                startCountdown();
+//                startCountdown();
+                takePicture();
                 textureView.setEnabled(false);
             }
         });
@@ -257,7 +257,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         String jsonString = preferences.getString("bitmap_list", "[]");
         Gson gson = new Gson();
         bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
-        Toast.makeText(getApplicationContext(), "size now: " + bitmapList.size(), Toast.LENGTH_SHORT).show();
         currentIndex= preferences.getInt("current_index", 0);
         updateImageView(currentIndex);
 
@@ -292,8 +291,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
 
         imageViewSecond.setOnClickListener(v -> {
-            // Ẩn popup khi click vào chính popup
-
             try {
                 PictureSelector.create(Activity_Camera2_Manual.this)
                         .openGallery(SelectMimeType.ofImage())  // Open gallery to pick image
@@ -304,19 +301,32 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                 if (result != null && !result.isEmpty()) {
                                     // Lấy đường dẫn ảnh đầu tiên trong danh sách kết quả
                                     String imagePath = result.get(0).getPath();
-
-                                    // Dùng Glide để tải ảnh vào ImageView
                                     Uri uri = Uri.parse(imagePath);
-                                    try {
-                                        InputStream inputStream = getContentResolver().openInputStream(uri); // Mở luồng từ URI
-                                        image = BitmapFactory.decodeStream(inputStream); // Decode thành Bitmap
-                                        assert inputStream != null;
-                                        inputStream.close(); // Đóng luồng sau khi sử dụng
-                                    } catch (Exception ignored) {
 
-                                    }
-                                    image=imgSolve.convertToGrayscale(image);
                                     try {
+                                        // Mở file descriptor để lấy kích thước file
+                                        ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r");
+                                        if (pfd != null) {
+                                            long fileSizeInBytes = pfd.getStatSize();
+                                            pfd.close();
+
+                                            // Chuyển đổi kích thước sang MB và kiểm tra
+                                            double fileSizeInMB = fileSizeInBytes / (1024.0 * 1024.0);
+                                            if (fileSizeInMB > 5) {
+                                                Toast.makeText(Activity_Camera2_Manual.this, "File size exceeds 5MB", Toast.LENGTH_SHORT).show();
+                                                return; // Không tiếp tục nếu file quá lớn
+                                            }
+                                        }
+
+                                        // Đọc ảnh thành Bitmap
+                                        InputStream inputStream = getContentResolver().openInputStream(uri);
+                                        image = BitmapFactory.decodeStream(inputStream);
+                                        assert inputStream != null;
+                                        inputStream.close();
+
+                                        // Chuyển ảnh sang grayscale
+                                        image = imgSolve.convertToGrayscale(image);
+
                                         // Chuyển Bitmap sang Base64
                                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
                                         image.compress(Bitmap.CompressFormat.PNG, 100, baos);
@@ -329,37 +339,65 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                         editor.putString("bitmap_key", decodedBitmap);
                                         editor.apply();
 
+                                        // Dùng Glide để hiển thị ảnh
+                                        Glide.with(Activity_Camera2_Manual.this)
+                                                .load(image)  // Đường dẫn ảnh
+                                                .into(imageViewSecond);  // Gắn ảnh vào ImageView
+
                                     } catch (Exception e) {
-                                        Log.e("BitmapStorage", "Error saving Bitmap to SharedPreferences: " + e.getMessage());
+                                        Log.e("BitmapProcessing", "Error processing image: " + e.getMessage());
                                     }
-
-                                    Glide.with(Activity_Camera2_Manual.this)
-                                            .load(image)  // Đường dẫn ảnh
-                                            .into(imageViewSecond);  // Gắn ảnh vào ImageView
-
                                 }
                             }
 
                             @Override
                             public void onCancel() {
-                                // Handle cancel action if needed
+                                // Xử lý nếu người dùng hủy chọn ảnh
                             }
                         });
             } catch (Exception e) {
                 Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
             }
-
         });
+
 
         // Lấy giá trị nguyên sau khi nhân với 10
 
         numberCount.setText(String.valueOf(counterTime));
         decrease.setOnClickListener(v -> {
-            counterTime--; // Giảm giá trị
-            numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
-            SharedPreferences.Editor editor = sharedPreferences.edit();
-            editor.putInt("counterTime", counterTime);
-            editor.apply();
+            if(counterTime>0) {
+                counterTime--; // Giảm giá trị
+                numberCount.setText(String.valueOf(counterTime)); // Cập nhật lại EditText
+                SharedPreferences.Editor editor = sharedPreferences.edit();
+                editor.putInt("counterTime", counterTime);
+                editor.apply();
+            }
+        });
+        numberCount.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                // Không cần làm gì ở đây
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                try {
+                    int newCounterTime = Integer.parseInt(s.toString());
+                    if (newCounterTime >= 0) {
+                        counterTime = newCounterTime;
+                        SharedPreferences.Editor editor = sharedPreferences.edit();
+                        editor.putInt("counterTime", counterTime);
+                        editor.apply();
+                    }
+                } catch (NumberFormatException e) {
+                    // Handle the exception if input is not a number
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                // Không cần làm gì ở đây
+            }
         });
 
         // Xử lý sự kiện khi nhấn nút tăng
@@ -395,53 +433,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         editor.apply(); // Áp dụng thay đổi
     }
 
-    private void startCountdown() {
-        // Hiển thị TextView countdown
-        countdown.setVisibility(View.VISIBLE);
-        countdownSound = MediaPlayer.create(this, R.raw.countdown); // Sử dụng tệp âm thanh cho 3 giây
-        shutterSound = MediaPlayer.create(this, R.raw.shutter); // Sử dụng tệp âm thanh cho tiếng chụp
 
-        // Khởi tạo CountDownTimer, đếm ngược từ 3 giây
-        new CountDownTimer(3000, 1000) {
-
-            @Override
-            public void onTick(long millisUntilFinished) {
-                // Cập nhật TextView với số giây còn lại
-                int secondsRemaining = (int) millisUntilFinished / 1000;
-
-                // Phát âm thanh cho mỗi giây đếm ngược
-                switch (secondsRemaining+1) {
-                    case 3:
-                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
-                        countdownSound.start();
-                        countdown.setText("3");
-                        break;
-                    case 2:
-                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
-                        countdownSound.start();
-                        countdown.setText("2");
-                        break;
-                    case 1:
-                        countdownSound = MediaPlayer.create(Activity_Camera2_Manual.this, R.raw.countdown);
-                        countdownSound.start();
-                        countdown.setText("1");
-                        break;
-                }
-            }
-
-            @Override
-            public void onFinish() {
-                // Sau khi đếm ngược xong, thực hiện chụp ảnh
-                takePicture(); // Gọi hàm chụp ảnh sau khi đếm ngược xong
-
-                // Phát âm thanh tiếng chụp
-                shutterSound.start();
-
-                // Ẩn TextView countdown sau khi chụp ảnh
-                countdown.setVisibility(View.GONE);
-            }
-        }.start();
-    }
     private void connectUSB() {
         UsbManager mUsbManager = (UsbManager) Activity_Camera2_Manual.this.getSystemService(Context.USB_SERVICE);
         HashMap<String, UsbDevice> deviceList = mUsbManager.getDeviceList();
@@ -553,9 +545,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 Drawable noel = getResources().getDrawable(R.drawable.nothing, null);
                 Bitmap bitmapFrameNull = imgSolve.drawableToBitmap(noel);
                 frame.setImageBitmap(bitmapFrameNull);
-                return;
             }
-            if (position == currentIndex) { // currentDisplayedImagePosition là vị trí hình ảnh hiện tại trong ImageView
+            else if (position == currentIndex) { // currentDisplayedImagePosition là vị trí hình ảnh hiện tại trong ImageView
 
 
                 String encodedBitmap;
@@ -625,9 +616,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 frame.setImageBitmap(resizedBitmap);
             }
 
-            Toast.makeText(getApplicationContext(), "Size sau: " + bitmapList.size(), Toast.LENGTH_SHORT).show();
-            Toast.makeText(getApplicationContext(), "position chon xoa: " + position, Toast.LENGTH_SHORT).show();
-            Toast.makeText(getApplicationContext(), "index hiện tại: " + currentIndex, Toast.LENGTH_SHORT).show();
         });
         recyclerView.setAdapter(adapter);
 
@@ -642,31 +630,56 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                 if (result != null && !result.isEmpty()) {
                                     // Get the first image path from the result list
                                     String imagePath = result.get(0).getPath();
-
-                                    // Use Glide to load the image into the ImageView
                                     Uri uri = Uri.parse(imagePath);
+
                                     try {
+                                        // Check if the file is a PNG
+                                        String mimeType = getContentResolver().getType(uri);
+                                        if (mimeType == null || !mimeType.equals("image/png")) {
+                                            Toast.makeText(Activity_Camera2_Manual.this, "File is not a PNG image", Toast.LENGTH_SHORT).show();
+                                            return;  // Do not proceed if file is not PNG
+                                        }
+
+                                        // Open file descriptor to get file size
+                                        ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r");
+                                        if (pfd != null) {
+                                            long fileSizeInBytes = pfd.getStatSize();
+                                            pfd.close();
+
+                                            // Convert size to MB and check if it exceeds the limit
+                                            double fileSizeInMB = fileSizeInBytes / (1024.0 * 1024.0);
+                                            if (fileSizeInMB > 5) {
+                                                Toast.makeText(Activity_Camera2_Manual.this, "File size exceeds 5MB", Toast.LENGTH_SHORT).show();
+                                                return;  // Do not proceed if file is too large
+                                            }
+                                        }
+
+                                        // Proceed with the rest of your image processing
                                         InputStream inputStream = getContentResolver().openInputStream(uri); // Open stream from URI
                                         Bitmap image = BitmapFactory.decodeStream(inputStream); // Decode to Bitmap
                                         assert inputStream != null;
                                         inputStream.close(); // Close the stream
 
-                                        // Resize image to reduce memory usage
+                                        // Resize and process image as before
                                         int targetWidth = 800; // Kích thước chiều rộng mong muốn
                                         int targetHeight = 800; // Kích thước chiều cao mong muốn
                                         image = Bitmap.createScaledBitmap(image, targetWidth, targetHeight, true);
 
                                         // Convert image to grayscale
                                         image = imgSolve.convertALPHA8(image);
-                                        // Tính toán kích thước mới theo tỷ lệ 16:10
+
+                                        // Resize bitmap to aspect ratio
                                         int originalWidth = image.getWidth();
                                         int newHeight = (int) (originalWidth * (3.0 / 4.0));
-
-                                        // Resize bitmap
                                         Bitmap resizedBitmap = Bitmap.createScaledBitmap(image, originalWidth, newHeight, true);
+
                                         frame.setImageBitmap(resizedBitmap);
-                                        currentIndex=bitmapList.size();
-                                        // Convert Bitmap to Base64
+                                        currentIndex = bitmapList.size();
+                                        SharedPreferences.Editor editor = preferences.edit();
+                                        editor.putInt("current_index", currentIndex);
+                                        editor.apply();
+
+                                        // Convert Bitmap to Base64 and save in SharedPreferences
                                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
                                         image.compress(Bitmap.CompressFormat.PNG, 100, baos); // Compress the image to reduce file size
                                         byte[] bitmapBytes = baos.toByteArray();
@@ -680,7 +693,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                         bitmapList.add(encodedBitmap);
 
                                         // Save the updated list back to SharedPreferences
-                                        SharedPreferences.Editor editor = preferences.edit();
                                         editor.putString("bitmap_list", gson.toJson(bitmapList));
                                         editor.apply();
 
@@ -690,12 +702,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                         }
 
                                         showImageFrameDialog();  // Reload the dialog
-
-
                                     } catch (Exception e) {
                                         Log.e("BitmapProcessing", "Error processing image", e);
                                     }
-
                                 }
                             }
 
@@ -708,6 +717,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
             }
         });
+
 
         // Setup dialog
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -1096,7 +1106,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 onClickPrint();
                 printImage(
                         combinedBitmap,
-                        10,
+                        0,
                         PRINT_THREE_INCH , false,
                         BITMAP_SHAKE
                 );
@@ -1198,9 +1208,21 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             formatted = current.format(formatter); // Chuỗi ngày giờ định dạng
         }
         try {
+
+
             String sText = counterTime +"   " +
                     "                                 "+formatted+"     ";
 
+            if(counterTime>99)
+            {
+                   sText = counterTime +"   " +
+                           "                                "+formatted+"     ";
+            }
+            if(counterTime>999)
+            {
+                sText = counterTime +"   " +
+                        "                              "+formatted+"     ";
+            }
             int iAlignment = 0;
             int iAttribute;
             int iTextSize = 0;
@@ -1462,7 +1484,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             captureRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_EDOF);
             int evValue = 2; // Giá trị EV (dương để tăng sáng, âm để giảm sáng)
             captureRequestBuilder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evValue);
-
 
             cameraDevice.createCaptureSession(Collections.singletonList(surface), new CameraCaptureSession.StateCallback(){
                 @Override

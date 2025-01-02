@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -57,9 +58,20 @@ public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.Imag
 
         // Handle "Delete" button click
         holder.buttonDelete.setOnClickListener(v -> {
-            if (position < imageList.size() && position >= 0) {
+            Toast.makeText(context, "vị trí chọn xóa : " +position, Toast.LENGTH_SHORT).show();
+
+            int newPosition=position;
+            if(imageList.size()==1)
+            {
+                newPosition=0;
+            }
+            if(position==imageList.size())
+            {
+             newPosition=position-1;
+            }
+            if (newPosition < imageList.size() && newPosition >= 0) {
                 // Xóa hình ảnh khỏi danh sách
-                imageList.remove(position);
+                imageList.remove(newPosition);
 
                 // Lưu danh sách cập nhật vào SharedPreferences
                 saveImageListToPreferences();
