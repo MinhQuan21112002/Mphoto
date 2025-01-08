@@ -72,6 +72,9 @@ import com.luck.picture.lib.basic.PictureSelector;
 import com.luck.picture.lib.config.SelectMimeType;
 import com.luck.picture.lib.entity.LocalMedia;
 import com.luck.picture.lib.interfaces.OnResultCallbackListener;
+
+import org.opencv.android.OpenCVLoader;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -161,6 +164,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         imageViewSecond=findViewById(R.id.imageViewSecond);
         countdown= findViewById(R.id.countdownTextManual);
         frame=findViewById(R.id.imageView);
+
         ImageButton settingButton = findViewById(R.id.button_settings);
         ImageButton backButton = findViewById(R.id.button_back);
         //-----------------------------------------------------------------------------
@@ -175,6 +179,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         btnPrint.setEnabled(false);
         btnCancel.setEnabled(false);
         //-----------------------------------------------------------------------------
+        if (OpenCVLoader.initDebug()) {
+            Log.d("OpenCV", "OpenCV được tải thành công!");
+        } else {
+            Log.d("OpenCV", "Lỗi: OpenCV không được tải.");
+        }
 
 
         // Check the connected USB device as soon as the application starts -------------
@@ -738,8 +747,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setView(dialogView);
-
-        AlertDialog dialog = builder.create();
+        builder.setNegativeButton("Đóng", (dialog, which) -> dialog.dismiss());
+        AlertDialog dialog1 = builder.create();
 
         // Lấy các thành phần từ layout dialog
         TextView isoText1 = dialogView.findViewById(R.id.isoText1);
@@ -835,106 +844,104 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         isoText1.setOnClickListener(v -> {
             applyISO(isoLevels[0]);
             updateISO(isoLevels[0]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         isoText2.setOnClickListener(v -> {
             applyISO(isoLevels[1]);
             updateISO(isoLevels[1]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         isoText3.setOnClickListener(v -> {
             applyISO(isoLevels[2]);
             updateISO(isoLevels[2]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         isoText4.setOnClickListener(v -> {
             applyISO(isoLevels[3]);
             updateISO(isoLevels[3]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         isoText5.setOnClickListener(v -> {
             applyISO(isoLevels[4]);
             updateISO(isoLevels[4]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         isoText6.setOnClickListener(v -> {
             applyISO(isoLevels[5]);
             updateISO(isoLevels[5]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         isoText7.setOnClickListener(v -> {
             applyISO(isoLevels[6]);
             updateISO(isoLevels[6]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText1.setOnClickListener(v -> {
             applyExpose(exposureLevels[0]);
             updateExposure(exposureLevels[0]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText2.setOnClickListener(v -> {
             applyExpose(exposureLevels[1]);
             updateExposure(exposureLevels[1]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText3.setOnClickListener(v -> {
             applyExpose(exposureLevels[2]);
             updateExposure(exposureLevels[2]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText4.setOnClickListener(v -> {
             applyExpose(exposureLevels[3]);
             updateExposure(exposureLevels[3]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText5.setOnClickListener(v -> {
             applyExpose(exposureLevels[4]);
             updateExposure(exposureLevels[4]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText6.setOnClickListener(v -> {
             applyExpose(exposureLevels[5]);
             updateExposure(exposureLevels[5]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         exposureText7.setOnClickListener(v -> {
             applyExpose(exposureLevels[6]);
             updateExposure(exposureLevels[6]);
-            dialog.dismiss();
+            dialog1.dismiss();
             reloadDialog(); // Reload lại dialog
         });
 
         // Thêm nút "Thoát" với setNegativeButton
-        builder.setNegativeButton("Thoát", (dialog1, which) -> dialog1.dismiss());
 
-        builder.setPositiveButton("OK", (dialog1, which) -> dialog1.dismiss());
-        dialog.show();
+        dialog1.show();
     }
 
 
@@ -993,7 +1000,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.d("CameraEXP", "Error " + e);
         }
     }
-    private void setPrintDialog2(String path) {
+    private void imageProcessing (String path) {
 
         Bitmap origin = BitmapFactory.decodeFile(path);
         int dpi = origin.getDensity();
@@ -1001,7 +1008,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         Bitmap resizedBitmap = imgSolve.processingImage(origin);
         AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
         bmp.get().setDensity(dpi);
-        frameLayoutPopup=findViewById(R.id.frame_layout);
         btnPrint=findViewById(R.id.btnPrint);
         btnCancel=findViewById(R.id.btnCancel);
         imageViewPreview = findViewById(R.id.imageViewPreview);
@@ -1103,7 +1109,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
                 }, 1500);
                 //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
-                onClickPrint();
+                PrintNumber();
                 printImage(
                         combinedBitmap,
                         0,
@@ -1198,7 +1204,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
     }
 
-    public void onClickPrint() {
+    public void PrintNumber() {
         if (checkClick.isClickEvent()) return;
         int iLeftMargin = 0;
         String formatted="";
@@ -1589,7 +1595,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         BitmapFactory.decodeFile(file.getPath(), options);
 
         // Truyền đường dẫn của tệp cache cho hàm setPrintDialog2
-        setPrintDialog2(file.getPath());
+        imageProcessing(file.getPath());
     }
     @Override
     public void onBackPressed() {
@@ -1610,3 +1616,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
 }
+
+
+
+

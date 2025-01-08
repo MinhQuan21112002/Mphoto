@@ -41,6 +41,8 @@ import android.os.HandlerThread;
 import android.util.Base64;
 import android.util.Log;
 import android.util.SparseIntArray;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -89,7 +91,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
     public Handler handler;
     // Button cho capture ảnh
-
+    private ImageView clickButton;
     // preview camera
     private TextureView textureView;
     private ImageView imgFrame;
@@ -119,6 +121,10 @@ public class Activity_Camera2 extends AppCompatActivity {
     int currentIndex;
     List<String> bitmapList;
     private int clickCount = 0;
+
+    private GestureDetector gestureDetector;
+
+    @SuppressLint("ClickableViewAccessibility")
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -175,6 +181,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Activity_Camera2.this.registerReceiver(mUsbReceiver, filter, RECEIVER_EXPORTED);
         }
+        clickButton = findViewById(R.id.idClick);
         textureView = findViewById(R.id.texture);
         imgFrame=findViewById(R.id.idIVLogo);
         ImageButton settingButton = findViewById(R.id.button_setting_change);
@@ -183,7 +190,12 @@ public class Activity_Camera2 extends AppCompatActivity {
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
 
+        gestureDetector = new GestureDetector(this, new GestureListener());
+        textureView.setOnTouchListener((v, event) -> gestureDetector.onTouchEvent(event));
         textureView.setOnClickListener(v -> {
+        });
+
+        clickButton.setOnClickListener(v -> {
 
             if (!Print.IsOpened()) {
                 Toast.makeText(Activity_Camera2.this, "Please connect to Printer", Toast.LENGTH_SHORT).show();
@@ -200,6 +212,8 @@ public class Activity_Camera2 extends AppCompatActivity {
             else{
                 startCountdown();
                 textureView.setEnabled(false);
+                clickButton.setEnabled(false);
+                clickButton.setVisibility(View.INVISIBLE);
             }
         });
 
@@ -224,6 +238,58 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         updateImageView(currentIndex);
 
+    }
+    private class GestureListener extends GestureDetector.SimpleOnGestureListener {
+        @Override
+        public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+            assert e1 != null;
+            float diffX = e2.getX() - e1.getX();
+            if (Math.abs(diffX) > Math.abs(e2.getY() - e1.getY())) {
+                // Kiểm tra swipe sang trái hoặc phải
+                if (diffX > 0) {
+                    // Swipe sang phải
+                    onSwipeRight();
+                } else {
+                    // Swipe sang trái
+                    onSwipeLeft();
+                }
+                return true;
+            }
+            return false;
+        }
+
+    }
+
+    // Xử lý swipe sang phải
+    private void onSwipeRight() {
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        String jsonString2 = preferences.getString("bitmap_list", "[]");
+        Gson gson2 = new Gson();
+        bitmapList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
+        if (currentIndex > 0) { // Không nhỏ hơn 0
+            currentIndex--;
+            updateImageView(currentIndex);
+            saveCurrentIndex(currentIndex);
+        }
+    }
+
+    // Xử lý swipe sang trái
+    private void onSwipeLeft() {
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        String jsonString2 = preferences.getString("bitmap_list", "[]");
+        Gson gson2 = new Gson();
+        bitmapList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
+        if (currentIndex < bitmapList.size() - 1) { // Không vượt quá danh sách
+            currentIndex++;
+            updateImageView(currentIndex);
+            saveCurrentIndex(currentIndex);
+        }
+    }
+    private void saveCurrentIndex(int index) {
+        SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = preferences.edit();
+        editor.putInt("current_index", index); // Lưu index hiện tại
+        editor.apply(); // Áp dụng thay đổi
     }
     private void updateImageView(int index) {
         if (bitmapList != null && index < bitmapList.size()) {
@@ -374,7 +440,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             }
         }
     };
-    private void Print(String path) {
+    private void imageProcessing(String path) {
 
         Bitmap origin = BitmapFactory.decodeFile(path);
         int dpi = origin.getDensity();
@@ -447,9 +513,11 @@ public class Activity_Camera2 extends AppCompatActivity {
 
 
 
-        runOnUiThread(() -> textureView.setEnabled(true));
+        runOnUiThread(() ->{ textureView.setEnabled(true);
+                clickButton.setEnabled(true);
+        clickButton.setVisibility(View.VISIBLE);});
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
-        onClickPrint();
+        PrintNumber();
         int PRINT_THREE_INCH = 576;
         int BITMAP_SHAKE = 1;
         printImage(
@@ -501,7 +569,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         });
     }
 
-    public void onClickPrint() {
+    public void PrintNumber() {
         if (checkClick.isClickEvent()) return;
         int iLeftMargin = 0;
         String formatted="";
@@ -889,7 +957,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         BitmapFactory.decodeFile(file.getPath(), options);
 
         // Truyền đường dẫn của tệp cache cho hàm setPrintDialog2
-        Print(file.getPath());
+        imageProcessing(file.getPath());
     }
 
     @Override

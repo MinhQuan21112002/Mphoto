@@ -52,7 +52,12 @@ public class ImageSolve {
 
         Utils.matToBitmap(matBlurred, processedBitmap);
         float widthMm = 80; // 출력 폭 (mm)
-        int widthPixels = (int) (widthMm * dpi / 25.4);
+        int widthPixels = (int) (widthMm * dpi / 25.4); // 폭을 픽셀로 변환
+
+        // DPI 설정 유지
+        processedBitmap.setDensity(dpi);
+
+        // *GPUImage를 사용하여 크
 
 
         return resizeBitmapWithGPUImage(context, processedBitmap, widthPixels);
