@@ -31,12 +31,21 @@
         android:layout_alignParentTop="true"
         android:layout_alignParentEnd="true"
         android:layout_alignParentBottom="true"
+
+
         android:layout_marginStart="526dp"
         android:layout_marginTop="281dp"
         android:layout_marginEnd="519dp"
         android:layout_marginBottom="281dp"
+
+
         android:alpha="1"
         android:src="@drawable/click2" />
+    <!--    Gia tri danh cho Telcast tablet-->
+    <!--        android:layout_marginStart="486dp"-->
+    <!--        android:layout_marginTop="241dp"-->
+    <!--        android:layout_marginEnd="486dp"-->
+    <!--        android:layout_marginBottom="241dp"-->
 
     <ImageButton
         android:id="@+id/button_setting_change"

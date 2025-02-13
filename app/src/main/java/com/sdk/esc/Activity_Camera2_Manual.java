@@ -1071,6 +1071,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         Bitmap enlargedBitmap = Bitmap.createScaledBitmap(processedBitmap2, newWidth+compensation, newHeight+compensation, true);
 // Phóng to processedBitmap2
+        // Tạo một đối tượng Matrix
+        Matrix matrix = new Matrix();
+
+// Lật ngang (hoặc thay đổi scale để lật theo hướng mong muốn)
+        matrix.preScale(-1, 1); // Lật ngang
+// Nếu muốn lật dọc: matrix.preScale(1, -1);
+
+// Áp dụng Matrix để tạo Bitmap mới
+        Bitmap flippedBitmap = Bitmap.createBitmap(enlargedBitmap, 0, 0,
+                enlargedBitmap.getWidth(), enlargedBitmap.getHeight(), matrix, true);
+
         Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
 
 
@@ -1085,7 +1096,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 // Vẽ bitmapFrame lên Canvas
         Canvas canvas = new Canvas(combinedBitmap);
-        canvas.drawBitmap(enlargedBitmap, 0, 0, null);
+        canvas.drawBitmap(flippedBitmap, 0, 0, null);
 
         canvas.drawBitmap(newFrameBitmap, 0, 0, null);
 

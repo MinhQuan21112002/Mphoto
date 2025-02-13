@@ -125,7 +125,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:text="Number"
+                    android:text="Số thứ tự"
                     android:textColor="@color/black"
                     android:textSize="16sp" />
 
@@ -180,7 +180,9 @@
                     android:contentDescription="Photo Preview"
 
                     android:src="@drawable/imagepreview" />
-
+<!--       Gia tri cua imageviewPreview cho Telcast Tablet  -->
+<!--                android:layout_width="274dp"-->
+<!--                android:layout_height="198dp"-->
                 <ImageView
                     android:id="@+id/imageViewSecond"
                     android:layout_width="match_parent"
@@ -210,7 +212,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Cancel" />
+                        android:text="Hủy" />
 
                     <!-- Button Print -->
                     <Button
@@ -218,7 +220,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Print" />
+                        android:text="In ảnh" />
 
 
                 </LinearLayout>
