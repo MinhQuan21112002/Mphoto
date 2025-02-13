@@ -3,12 +3,18 @@ package com.sdk.esc;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.Log;
+
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.WriterException;
+import com.google.zxing.common.BitMatrix;
+import com.journeyapps.barcodescanner.BarcodeEncoder;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Mat;
@@ -18,15 +24,48 @@ import org.opencv.imgproc.Imgproc;
 import java.io.File;
 import java.util.Objects;
 import jp.co.cyberagent.android.gpuimage.GPUImage;
-import jp.co.cyberagent.android.gpuimage.filter.GPUImageFilter;
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageSharpenFilter;
 
 
 public class ImageSolve {
     private final Context context;
+    public Bitmap createTextBitmap(String counterTime, String formatted) {
+        int width = 576;  // Chiều rộng cố định
+        int height = 70; // Chiều cao có thể điều chỉnh
+
+        // Tạo một bitmap trống
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(Color.WHITE); // Đổ nền trắng
+
+        // Tạo Paint để vẽ text
+        Paint paint = new Paint();
+        paint.setColor(Color.BLACK);  // Màu chữ đen
+        paint.setTextSize(30);        // Cỡ chữ
+        paint.setAntiAlias(true);     // Làm mịn chữ
+
+        // Vẽ counterTime ở sát bên trái
+        canvas.drawText(counterTime, 10, (float) height / 2 + 15, paint);
+
+        // Tính toán vị trí của formatted để căn phải
+        float textWidth = paint.measureText(formatted);
+        canvas.drawText(formatted, width - textWidth - 10, (float) height / 2 + 15, paint);
+
+        return bitmap;
+    }
+
+    public Bitmap generateQRCode(String text, int size) {
+        try {
+            BarcodeEncoder barcodeEncoder = new BarcodeEncoder();
+            BitMatrix bitMatrix = barcodeEncoder.encode(text, BarcodeFormat.QR_CODE, size, size);
+            return barcodeEncoder.createBitmap(bitMatrix);
+        } catch (WriterException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     public Bitmap processingImage(Bitmap origin) {
-        int dpi = origin.getDensity();
-        if (dpi == 0) dpi = 203; // 기본 DPI 설정
 
         // Bitmap을 Mat 객체로 변환
         origin = origin.copy(Bitmap.Config.ARGB_8888, true); // Bitmap 포맷을 ARGB_8888로 변환
@@ -39,7 +78,7 @@ public class ImageSolve {
 
         // CLAHE 적용
         Mat matCLAHE = new Mat();
-        CLAHE clahe = Imgproc.createCLAHE(0.4, new org.opencv.core.Size(3, 3));
+        CLAHE clahe = Imgproc.createCLAHE(1, new org.opencv.core.Size(3, 3));
         clahe.apply(matGray, matCLAHE);
 
         // *가우시안 블러 적용*
@@ -51,17 +90,13 @@ public class ImageSolve {
         Log.d("Bitmap Dimensions", "Width: " + processedBitmap.getWidth() + ", Height: " + processedBitmap.getHeight());
 
         Utils.matToBitmap(matBlurred, processedBitmap);
-        float widthMm = 80; // 출력 폭 (mm)
-        int widthPixels = (int) (widthMm * dpi / 25.4); // 폭을 픽셀로 변환
-
-        // DPI 설정 유지
-        processedBitmap.setDensity(dpi);
 
         // *GPUImage를 사용하여 크
 
 
-        return resizeBitmapWithGPUImage(context, processedBitmap, widthPixels);
+        return processedBitmap;
     }
+
     public Bitmap drawableToBitmap(Drawable drawable) {
         // Kiểm tra nếu drawable là BitmapDrawable
         if (drawable instanceof BitmapDrawable) {
@@ -75,36 +110,7 @@ public class ImageSolve {
         drawable.draw(canvas);
         return bitmap;
     }
-    public Bitmap resizeBitmapWithGPUImage(Context context, Bitmap originalBitmap, int newWidth) {
 
-        // 원본 이미지의 DPI 가져오기
-        int dpi = originalBitmap.getDensity(); // DPI 값을 가져옵니다.
-        if (dpi == 0) dpi = 203; // 기본 DPI 설정 (203은 일반 DPI 기본값)
-        // Resize ảnh trước
-
-        int originalWidth = originalBitmap.getWidth();
-        int originalHeight = originalBitmap.getHeight();
-        int newHeight = (int) Math.round((double) newWidth / originalWidth * originalHeight);
-        Bitmap resizedBitmap = Bitmap.createScaledBitmap(originalBitmap, newWidth, newHeight, true);
-
-        // DPI 설정을 유지
-        resizedBitmap.setDensity(dpi);
-
-        // Khởi tạo GPUImage
-        GPUImage gpuImage = new GPUImage(context);
-        gpuImage.setImage(resizedBitmap);
-
-        // Áp dụng filter (hoặc giữ nguyên nếu không cần filter)
-        gpuImage.setFilter(new GPUImageFilter());
-
-        // Lấy ảnh đã xử lý
-        Bitmap filteredBitmap = gpuImage.getBitmapWithFilterApplied();
-
-        // DPI 설정 유지
-        filteredBitmap.setDensity(dpi);
-
-        return filteredBitmap;
-    }
     public Bitmap applySharpening(Bitmap inputBitmap, float sharpness) {
         GPUImage gpuImage = new GPUImage(context);
 
@@ -230,6 +236,25 @@ public class ImageSolve {
         canvas.drawBitmap(original, 0, 0, paint);
         return adjustedBitmap;
     }
+
+    public Bitmap adjustContrastWithOpenCV(Bitmap original, float contrastFactor) {
+        // Chuyển Bitmap thành Mat
+        Mat mat = new Mat();
+        Utils.bitmapToMat(original, mat);
+
+        // Tạo Mat đầu ra
+        Mat result = new Mat();
+
+        // Điều chỉnh độ tương phản: contrastFactor > 1 làm tăng tương phản, <1 thì giảm
+        mat.convertTo(result, -1, contrastFactor, 0);
+
+        // Chuyển lại Bitmap
+        Bitmap output = Bitmap.createBitmap(original.getWidth(), original.getHeight(), original.getConfig());
+        Utils.matToBitmap(result, output);
+
+        return output;
+    }
+
     public void clearCache() {
         File cacheDir = context.getCacheDir(); // Lấy thư mục cache
         if (cacheDir != null && cacheDir.isDirectory()) {
@@ -248,4 +273,6 @@ public class ImageSolve {
             }
         }
     }
+    // Hàm kiểm tra file có phải ảnh không
+
 }

@@ -22,6 +22,9 @@ android {
         viewBinding {
             enabled = true
         }
+        packagingOptions {
+            exclude 'META-INF/DEPENDENCIES'
+        }
     }
 
     android.applicationVariants.all { variant ->
@@ -74,6 +77,11 @@ dependencies {
     implementation 'io.reactivex.rxjava2:rxandroid:2.1.1'
     implementation 'io.reactivex.rxjava2:rxkotlin:2.3.0'
 
+    //Qr code
+    implementation 'com.google.mlkit:face-detection:16.1.5'
+    implementation 'com.google.zxing:core:3.5.1'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+
     // PictureSelector (updated version)
     implementation 'io.github.lucksiege:pictureselector:v3.11.2'
     implementation "androidx.camera:camera-core:1.4.1"
@@ -83,10 +91,13 @@ dependencies {
     implementation 'com.quickbirdstudios:opencv:4.5.3'
     implementation 'com.google.code.gson:gson:2.10.1'
 
+    //Google Drive
+    dependencies {
+        implementation 'com.google.api-client:google-api-client-android:1.33.0'
+        implementation 'com.google.apis:google-api-services-drive:v3-rev197-1.25.0'
+    }
 
-
-    // OpenCV
-  //  implementation 'org.opencv:opencv-android:4.10.0'
+    //implementation 'org.opencv:opencv-android:4.10.0'
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
     // Testing
