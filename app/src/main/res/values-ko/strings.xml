@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_title">M Photo</string>
+    <string name="ExposureTime">노출 시간</string>
+    <string name="take_picture">사진 찍기</string>
+    <string name="settings">설정</string>
+    <string name="numberCount">일련 번호</string>
+    <string name="RecommendImage">추천 이미지: 576 x 200</string>
+    <string name="Cancel">취소</string>
+    <string name="PrintImage">이미지 인쇄</string>
+    <string name="SelectImageFromGalery">갤러리에서 이미지 선택</string>
+    <string name="RecommendFrame">추천 프레임: 4x3</string>
+    <string name="iso">ISO</string>
+    <string name="image_list_title">이미지 목록</string>
+    <string name="close">닫기</string>
+    <string name="please_connect_printer">프린터를 연결하고 전원을 켜주세요</string>
+    <string name="vietnamese">베트남어</string>
+    <string name="english">영어</string>
+    <string name="korean">한국어</string>
+
+
+</resources>

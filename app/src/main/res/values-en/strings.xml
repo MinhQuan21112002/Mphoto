@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_title">M Photo</string>
+    <string name="ExposureTime">Exposure Time</string>
+    <string name="take_picture">Take Picture</string>
+    <string name="settings">Settings</string>
+    <string name="numberCount">Serial Number</string>
+    <string name="RecommendImage">Recommended image: 576 x 200</string>
+    <string name="Cancel">Cancel</string>
+    <string name="PrintImage">Print Image</string>
+    <string name="SelectImageFromGalery">Select image from gallery</string>
+    <string name="RecommendFrame">Recommended frame: 4x3</string>
+    <string name="iso">ISO</string>
+    <string name="image_list_title">Image List</string>
+    <string name="close">Close</string>
+    <string name="please_connect_printer">Please connect to And Turn on Printer</string>
+    <string name="vietnamese">Vietnamese</string>
+    <string name="english">English</string>
+    <string name="korean">Korean</string>
+
+</resources>
