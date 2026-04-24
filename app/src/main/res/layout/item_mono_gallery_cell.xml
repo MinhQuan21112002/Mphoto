@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="208dp"
+    android:elevation="2dp"
+    android:stateListAnimator="@null">
+
+    <ImageView
+        android:id="@+id/imageCell"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:background="#22000000"
+        android:contentDescription="@string/mono_gallery_item"
+        android:scaleType="fitCenter" />
+
+    <ImageButton
+        android:id="@+id/buttonCellDelete"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="end|top"
+        android:layout_margin="6dp"
+        android:background="@drawable/mono_gallery_delete_bg"
+        android:contentDescription="@string/mono_gallery_delete"
+        android:padding="6dp"
+        android:scaleType="centerInside"
+        android:src="@android:drawable/ic_menu_delete"
+        app:tint="@android:color/white" />
+</FrameLayout>

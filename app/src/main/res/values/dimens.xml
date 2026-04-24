@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="mono_left_col_padding">6dp</dimen>
+    <dimen name="mono_preview_trailing_gap">10dp</dimen>
+    <dimen name="mono_nav_stack_spacing">6dp</dimen>
+    <dimen name="mono_nav_list_top_inset">2dp</dimen>
+    <dimen name="mono_nav_thumb_nudge_up">-4dp</dimen>
+    <dimen name="mono_section_gap">4dp</dimen>
+    <dimen name="mono_frame_nav_size">96dp</dimen>
+    <dimen name="mono_list_btn_w">100dp</dimen>
+    <dimen name="mono_list_row_h">100dp</dimen>
+    <dimen name="mono_thumb">100dp</dimen>
+    <dimen name="mono_add_frame_btn_size">64dp</dimen>
+    <dimen name="mono_print_btn_w">150dp</dimen>
+    <dimen name="mono_preview_min_height">160dp</dimen>
+</resources>

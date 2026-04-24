@@ -3,8 +3,6 @@ package com.sdk.esc;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.util.Base64;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -51,51 +49,39 @@ public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.Imag
 
     @Override
     public void onBindViewHolder(@NonNull ImageViewHolder holder, int position) {
-        SharedPreferences preferences2 = context.getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
-        String jsonString2 = preferences2.getString("bitmap_list", "[]");
-        Gson gson2 = new Gson();
-        imageList = gson2.fromJson(jsonString2, new TypeToken<List<String>>() {}.getType());
-        String encodedBitmap = imageList.get(position);
-
-        // Decode Base64 string to Bitmap
-        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-
-        // Set the image in ImageView
-        holder.imageView.setImageBitmap(bitmap);
+        String entry = this.imageList.get(position);
+        Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(context, entry);
+        if (bitmap != null) {
+            holder.imageView.setImageBitmap(bitmap);
+        }
 
         // Xử lý sự kiện click
         holder.imageView.setOnClickListener(v -> {
             if (onImageClickListener != null) {
-                onImageClickListener.onImageClicked(position);
+                onImageClickListener.onImageClicked(holder.getAdapterPosition());
             }
         });
         // Handle "Delete" button click
         holder.buttonDelete.setOnClickListener(v -> {
-            Toast.makeText(context, "vị trí chọn xóa : " +position, Toast.LENGTH_SHORT).show();
+            int pos = holder.getAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION) {
+                return;
+            }
+            Toast.makeText(context, "vị trí chọn xóa : " + pos, Toast.LENGTH_SHORT).show();
 
-            int newPosition=position;
-            if(imageList.size()==1)
-            {
-                newPosition=0;
-            }
-            if(position==imageList.size())
-            {
-             newPosition=position-1;
-            }
-            if (newPosition < imageList.size() && newPosition >= 0) {
-                // Xóa hình ảnh khỏi danh sách
-                imageList.remove(newPosition);
+            if (pos < imageList.size() && pos >= 0) {
+                UserAssetFileStore.deleteFileForListEntry(context, imageList.get(pos));
+                imageList.remove(pos);
 
                 // Lưu danh sách cập nhật vào SharedPreferences
                 saveImageListToPreferences();
 
                 // Cập nhật RecyclerView
-                notifyItemRemoved(position);
+                notifyItemRemoved(pos);
 
                 // Gọi callback nếu cần
                 if (onImageDeleteListener != null) {
-                    onImageDeleteListener.onImageDeleted(position);
+                    onImageDeleteListener.onImageDeleted(pos);
                 }
             }
         });
@@ -117,6 +103,7 @@ public class ImageListAdapter extends RecyclerView.Adapter<ImageListAdapter.Imag
         String json = gson.toJson(imageList);
         editor.putString("bitmap_list", json);
         editor.apply();
+        MPhotoUserDataBackup.scheduleSave(context.getApplicationContext());
     }
 
 

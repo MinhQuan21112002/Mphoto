@@ -45,6 +45,7 @@ import android.os.ParcelFileDescriptor;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Base64;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
@@ -53,17 +54,21 @@ import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -71,6 +76,9 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.DecodeFormat;
+import com.bumptech.glide.load.resource.bitmap.DownsampleStrategy;
+import com.bumptech.glide.request.RequestOptions;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.luck.picture.lib.basic.PictureSelector;
@@ -93,6 +101,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -116,10 +125,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private TextureView textureView;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
+    private static final String[] ISO_LEVELS = { "200", "300", "400", "500", "600", "700", "800", "100" };
+    private static final String[] EXPOSURE_LEVELS_LABEL = { "0.2s", "0.3s", "0.4s", "0.5s", "0.6s", "0.7s", "0.8s", "0.9s", "1s", "1.2s", "1.4s", "2.0s", "0.1s" };
+    private static final String[] EXPO_US = { "20000000", "30000000", "40000000", "50000000", "60000000", "70000000", "80000000", "90000000", "100000000", "120000000", "140000000", "250000000", "10000000" };
     private final int PRINT_FAILURE = 0;
     private final int PRINT_THREE_INCH = 576;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_STORAGE_PERMISSION = 201;
+    private volatile boolean blockLiveCaptureForDrive;
     private UsbDevice device = null;
     private PendingIntent mPermissionIntent = null;
     private static final String ACTION_USB_PERMISSION = "com.PRINTSDKSample";
@@ -136,12 +149,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private Size imageDimension;
     private Handler mBackgroundHandler;
     private HandlerThread mBackgroundThread;
-    FrameLayout frameLayoutPopup;
+    /** Dòng In / Hủy sát dưới vùng live + ảnh phụ; chỉ {@link View#VISIBLE} sau khi chụp. */
+    View layoutPrintCancelRow;
     Button btnPrint;
     Button btnCancel;
     ImageView imageViewPreview ;
     Bitmap image = null;
     ImageView imageViewSecond;
+    /** Ảnh mới nhất trong thư mục M-Photo Mono (cạnh nút next khung). */
+    ImageView imageMonoLatestThumb;
+    private final Runnable monoFolderThumbRefreshRetry = () -> refreshMonoFolderThumbnail();
     boolean havingUsb=false;
     Button decrease;
     Button increase;
@@ -154,23 +171,40 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     int currentIndexImageView2;
     ImageView frame;
     int currentIndex;
+    private View monoPreviewFlexHost;
+    /** Cột giữa (trái/phải nút) — cao thật dùng tính w; host chỉ wrap nội dung. */
+    private View monoPreviewCenterColumn;
+    private ViewGroup monoPreviewFlexContent;
+    private ViewGroup frameMonoSecond;
+    private int lastMonoFlexSignature = Integer.MIN_VALUE;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
 
 
         SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+
         String lang = prefs.getString("language", "vi");
         changeLanguageFirst(lang); // ✅ Gọi trước super.onCreate()
         super.onCreate(savedInstanceState);
 
-
+        TokenManager tokenManager = TokenManager.getInstance(this);
+        if (!tokenManager.isLoggedIn()) {
+            startActivity(new Intent(this, LoginActivity.class));
+            finish();
+            return;
+        }
 
         //initialize the interface
+
         setContentView(R.layout.activity_camera2_manual);
         buttonUp=findViewById(R.id.button_up);
         buttonDown=findViewById(R.id.button_down);
         buttonList=findViewById(R.id.button_list);
+        imageMonoLatestThumb = findViewById(R.id.imageMonoLatestThumb);
+        if (imageMonoLatestThumb != null) {
+            imageMonoLatestThumb.setOnClickListener(v -> showMonoGalleryPickerDialog());
+        }
         increase=findViewById(R.id.btnIncrease);
         decrease=findViewById(R.id.btnDecrease);
         numberCount=findViewById(R.id.editTextNumber);
@@ -178,8 +212,18 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         btnCancel=findViewById(R.id.btnCancel);
         textureView = findViewById(R.id.texture);
         imageViewSecond=findViewById(R.id.imageViewSecond);
+        if (imageViewSecond != null) {
+            imageViewSecond.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            imageViewSecond.setAdjustViewBounds(true);
+        }
+        imageViewPreview = findViewById(R.id.imageViewPreview);
+        layoutPrintCancelRow = findViewById(R.id.layout_print_cancel_row);
         countdown= findViewById(R.id.countdownTextManual);
         frame=findViewById(R.id.imageView);
+        monoPreviewFlexHost = findViewById(R.id.mono_preview_flex_host);
+        monoPreviewCenterColumn = findViewById(R.id.mono_preview_center_column);
+        monoPreviewFlexContent = findViewById(R.id.mono_preview_flex_content);
+        frameMonoSecond = findViewById(R.id.frame_mono_second);
         ImageButton btnChangeLanguage = findViewById(R.id.btnChangeLanguage);
         ImageButton settingButton = findViewById(R.id.button_settings);
         ImageButton backButton = findViewById(R.id.button_back);
@@ -215,17 +259,21 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         updateImageView2(currentIndexImageView2);
         //Load anh phu
         if (!bitmapListImageView2.isEmpty()) {
-            String encodedBitmap = bitmapListImageView2.get(currentIndexImageView2);
-            byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-            image= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+            image = UserAssetFileStore.decodeListEntryToBitmap(this,
+                bitmapListImageView2.get(currentIndexImageView2));
         }
-        else {
+        if (image == null) {
             image = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
         }
         runOnUiThread(() -> {
             Glide.with(Activity_Camera2_Manual.this)
-                    .load(image)  // Đường dẫn ảnh
-                    .into(imageViewSecond);  // Gắn ảnh vào ImageView
+                    .load(image)
+                    .fitCenter()
+                    .into(imageViewSecond);
+            View monoSizeRef = getMonoPreviewFlexSizeRef();
+            if (monoSizeRef != null) {
+                monoSizeRef.post(this::notifyMonoPreviewFlexRecalc);
+            }
         });
 
         imageViewSecond.setOnClickListener(v -> showImagePickerDialog());
@@ -241,6 +289,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 Log.e("MainActivity", "Lỗi khi tạo hoặc lấy thư mục NameCard.");
             }
         });
+        SoftwareUpdateHelper.checkAndDownloadInBackground(this);
         //--------------------------------------------------------------------------------------------------------------
 
         imgSolve = new ImageSolve(this);
@@ -281,40 +330,40 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
         countdown.setVisibility(View.INVISIBLE);
-        textureView.setOnClickListener(v -> {
-
-            if (!Print.IsOpened()) {
+        View.OnClickListener livePreviewClickListener = v -> {
+            if (!Print.IsOpened() && !PrinterTestMode.isEnabled(this)) {
                 Toast.makeText(Activity_Camera2_Manual.this, getString(R.string.please_connect_printer), Toast.LENGTH_SHORT).show();
                 try {
-                    if(havingUsb)// Check if you have connected Printer or not
-                    {
-                        connectUSB(); // If you not, it will call function connectUSB();
+                    if (havingUsb) {
+                        connectUSB();
                     }
                 } catch (NumberFormatException e) {
                     Toast.makeText(getApplicationContext(), "Can't find Printer", Toast.LENGTH_SHORT).show();
                 }
-
-            }
-            else{
-                // If you have did that , it will start capturing picture
-//                startCountdown();
+            } else {
+                if (blockLiveCaptureForDrive) {
+                    Toast.makeText(Activity_Camera2_Manual.this, R.string.drive_upload_wait_capture, Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 takePicture();
-                textureView.setEnabled(false);
+                setLiveViewCaptureInputEnabled(false);
             }
-        });
+        };
+        textureView.setOnClickListener(livePreviewClickListener);
+        frame.setOnClickListener(livePreviewClickListener);
+        imageViewPreview.setOnClickListener(livePreviewClickListener);
+        countdown.setOnClickListener(livePreviewClickListener);
         //-----------------------------------------------------------------------------
 
 
         // function for behavior of clicking setting button
         settingButton.setOnClickListener(v -> showSettingDialog());
+        bindIsoExposurePanel();
         // function for behavior of clicking back Button
         backButton.setOnClickListener(v -> {
             Intent intent2 = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class); // Chuyển đến SettingsActivity
             startActivity(intent2); // Bắt đầu Activity mới
         });
-
-
-
 
         //Add image Frame and edit
         buttonList.setOnClickListener(v -> showImageFrameDialog());
@@ -400,6 +449,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             editor.putInt("counterTime", counterTime);
             editor.apply();
         });
+        View monoSizeRef = getMonoPreviewFlexSizeRef();
+        if (monoSizeRef != null) {
+            monoSizeRef.getViewTreeObserver().addOnGlobalLayoutListener(this::onMonoPreviewFlexLayout);
+            monoSizeRef.post(this::applyMonoPreviewFlexLayout);
+        }
     }
 
     public void changeLanguage(String langCode) {
@@ -437,9 +491,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
     private void updateImageView(int index) {
         if (bitmapList != null && index < bitmapList.size()) {
-            String encodedBitmap = bitmapList.get(index);
-            byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+            Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(this, bitmapList.get(index));
+            if (bitmap == null) {
+                return;
+            }
 
             // Tính toán kích thước mới theo tỷ lệ 16:10
             int originalWidth = bitmap.getWidth();
@@ -454,11 +509,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
     private void updateImageView2(int index) {
         if (bitmapListImageView2 != null && index < bitmapListImageView2.size()) {
-            String encodedBitmap = bitmapListImageView2.get(index);
-            byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-            // Set resized bitmap vào ImageView
-            imageViewSecond.setImageBitmap(bitmap);
+            Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(this, bitmapListImageView2.get(index));
+            if (bitmap != null) {
+                imageViewSecond.setImageBitmap(bitmap);
+                image = bitmap;
+                notifyMonoPreviewFlexRecalc();
+            }
         }
     }
     private void saveCurrentIndex(int index) {
@@ -557,12 +613,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         LayoutInflater inflater = getLayoutInflater();
         View dialogView = inflater.inflate(R.layout.dialog_image_picker, null);
         Button btnPickImage = dialogView.findViewById(R.id.btnPickImage);
+        Button btnResyncSub = dialogView.findViewById(R.id.btnResyncMonoSubPhotos);
+        Button btnLoadMoreSub = dialogView.findViewById(R.id.btnLoadMoreSub);
 //        Button btnPickImageDrive = dialogView.findViewById(R.id.btnPickImageDrive);
         RecyclerView recyclerView = dialogView.findViewById(R.id.recyclerViewImages);
 
         recyclerView.setLayoutManager(new GridLayoutManager(this, 3));
 
         SharedPreferences preferences = getSharedPreferences("MyAppPrefs2", Context.MODE_PRIVATE);
+        currentIndexImageView2 = preferences.getInt("indexImageView2", 0);
         String jsonString = preferences.getString("ImageViewList", "[]");
         Gson gson = new Gson();
         bitmapListImageView2 = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
@@ -579,6 +638,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                         Drawable noel = getResources().getDrawable(R.drawable.bottom, null);
                         Bitmap bitmapFrameNull = imgSolve.drawableToBitmap(noel);
                         imageViewSecond.setImageBitmap(bitmapFrameNull);
+                        image = bitmapFrameNull;
+                        notifyMonoPreviewFlexRecalc();
                     }
                     else if (position == currentIndexImageView2) { // currentDisplayedImagePosition là vị trí hình ảnh hiện tại trong ImageView
 
@@ -597,12 +658,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                             editor.putInt("indexImageView2", currentIndexImageView2);
                             editor.apply();
                         }
-                        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-
-
-                        // Set resized bitmap vào ImageView
-                        imageViewSecond.setImageBitmap(bitmap);
+                        Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(Activity_Camera2_Manual.this, encodedBitmap);
+                        if (bitmap != null) {
+                            imageViewSecond.setImageBitmap(bitmap);
+                            image = bitmap;
+                            notifyMonoPreviewFlexRecalc();
+                        }
 
                     }
 
@@ -630,13 +691,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                 editor.apply();
                             }
                         }
-                        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-
-
-
-                        // Set resized bitmap vào ImageView
-                        imageViewSecond.setImageBitmap(bitmap);
+                        Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(Activity_Camera2_Manual.this, encodedBitmap);
+                        if (bitmap != null) {
+                            imageViewSecond.setImageBitmap(bitmap);
+                            image = bitmap;
+                            notifyMonoPreviewFlexRecalc();
+                        }
                     }
                 },
                 position2 -> {
@@ -646,18 +706,36 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     SharedPreferences.Editor editor = preferences.edit();
                     editor.putInt("indexImageView2", currentIndexImageView2);
                     editor.apply();
-                    byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                    Bitmap resizedBitmap= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
-                    imageViewSecond.setImageBitmap(resizedBitmap);
+                    Bitmap resizedBitmap = UserAssetFileStore.decodeListEntryToBitmap(Activity_Camera2_Manual.this, encodedBitmap);
+                    if (resizedBitmap != null) {
+                        imageViewSecond.setImageBitmap(resizedBitmap);
+                        image = resizedBitmap;
+                        notifyMonoPreviewFlexRecalc();
+                    }
                 });
 
         recyclerView.setAdapter(adapter);
+        final int pageSizeSub = 5;
+        adapter.setVisibleCount(pageSizeSub);
+        if (btnLoadMoreSub != null) {
+            btnLoadMoreSub.setVisibility(adapter.canLoadMore() ? View.VISIBLE : View.GONE);
+            btnLoadMoreSub.setOnClickListener(v -> {
+                boolean more = adapter.increaseVisibleCount(pageSizeSub);
+                if (!more || !adapter.canLoadMore()) {
+                    btnLoadMoreSub.setVisibility(View.GONE);
+                }
+            });
+        }
 
         builder.setView(dialogView);
         builder.setTitle(getString(R.string.image_list_title));
         builder.setPositiveButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         AlertDialog dialog = builder.create();
         dialog.show();
+
+        if (btnResyncSub != null) {
+            btnResyncSub.setOnClickListener(v -> runMonoSubPhotoSyncFromServer(dialog));
+        }
 
         // Di chuyển dialog đến góc trái
         Window window = dialog.getWindow();
@@ -732,12 +810,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                                 // Thay đổi tỷ lệ ảnh
 
 
-                                                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                                                image.compress(Bitmap.CompressFormat.PNG, 100, baos);
-                                                byte[] bitmapBytes = baos.toByteArray();
-                                                String encodedBitmap = Base64.encodeToString(bitmapBytes, Base64.DEFAULT);
+                                                String toStore = UserAssetFileStore.saveBitmapAsFileToken(
+                                                    getApplicationContext(), image, false);
+                                                if (toStore == null) {
+                                                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                                    image.compress(Bitmap.CompressFormat.PNG, 100, baos);
+                                                    toStore = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT);
+                                                }
 
-                                                bitmapListImageView2.add(encodedBitmap);
+                                                bitmapListImageView2.add(toStore);
 
                                             } catch (Exception e) {
                                                 Log.e("BitmapProcessing", "Lỗi xử lý ảnh: " + e.getMessage());
@@ -753,12 +834,21 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                             currentIndexImageView2 = bitmapListImageView2.size() - 1;
                                             editor.putInt("indexImageView2", currentIndexImageView2);
                                             editor.apply();
+                                            MPhotoUserDataBackup.scheduleSave(getApplicationContext());
 
                                             // Hiển thị ảnh cuối cùng lên ImageView
                                             if (!bitmapListImageView2.isEmpty()) {
-                                                byte[] bitmapBytes = Base64.decode(bitmapListImageView2.get(currentIndexImageView2), Base64.DEFAULT);
-                                                Bitmap lastImage = BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
-                                                Glide.with(Activity_Camera2_Manual.this).load(lastImage).into(imageViewSecond);
+                                                Bitmap lastImage = UserAssetFileStore.decodeListEntryToBitmap(
+                                                    Activity_Camera2_Manual.this,
+                                                    bitmapListImageView2.get(currentIndexImageView2));
+                                                if (lastImage != null) {
+                                                    image = lastImage;
+                                                    Glide.with(Activity_Camera2_Manual.this).load(lastImage).fitCenter().into(imageViewSecond);
+                                                }
+                                                View r = getMonoPreviewFlexSizeRef();
+                                                if (r != null) {
+                                                    r.post(Activity_Camera2_Manual.this::notifyMonoPreviewFlexRecalc);
+                                                }
                                             }
 
                                             showLoading(false); // Ẩn vòng xoay sau khi load xong
@@ -882,6 +972,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         LayoutInflater inflater = getLayoutInflater();
         View dialogView = inflater.inflate(R.layout.list_image_frame, null);
         Button buttonAdd = dialogView.findViewById(R.id.btnAddImage);
+        Button btnResyncFrames = dialogView.findViewById(R.id.btnResyncMonoFrames);
+        Button btnLoadMoreFrame = dialogView.findViewById(R.id.btnLoadMoreFrame);
         RecyclerView recyclerView = dialogView.findViewById(R.id.recyclerViewImages);
 
         // Setup RecyclerView with GridLayoutManager
@@ -890,6 +982,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         // Load image list from SharedPreferences
         SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+        currentIndex = preferences.getInt("current_index", 0);
         String jsonString = preferences.getString("bitmap_list", "[]");
         Gson gson = new Gson();
         bitmapList = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
@@ -925,8 +1018,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                             editor.putInt("current_index", currentIndex);
                             editor.apply();
                         }
-                        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+                        Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(Activity_Camera2_Manual.this, encodedBitmap);
+                        if (bitmap == null) {
+                            return;
+                        }
 
                         // Tính toán kích thước mới theo tỷ lệ 16:10
                         int originalWidth = bitmap.getWidth();
@@ -964,8 +1059,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                 editor.apply();
                             }
                         }
-                        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+                        Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(Activity_Camera2_Manual.this, encodedBitmap);
+                        if (bitmap == null) {
+                            return;
+                        }
 
                         // Tính toán kích thước mới theo tỷ lệ 16:10
                         int originalWidth = bitmap.getWidth();
@@ -985,8 +1082,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     SharedPreferences.Editor editor = preferences.edit();
                     editor.putInt("current_index", currentIndex);
                     editor.apply();
-                    byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                    Bitmap bitmap= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+                    Bitmap bitmap= UserAssetFileStore.decodeListEntryToBitmap(Activity_Camera2_Manual.this, encodedBitmap);
+                    if (bitmap == null) {
+                        return;
+                    }
                     int originalWidth = bitmap.getWidth();
                     int newHeight = (int) (originalWidth * (3.0 / 4.0));
                     Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, newHeight, true);
@@ -994,6 +1093,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     frame.setImageBitmap(resizedBitmap);
                 });
         recyclerView.setAdapter(adapter);
+        final int pageSizeFrame = 5;
+        adapter.setVisibleCount(pageSizeFrame);
+        if (btnLoadMoreFrame != null) {
+            btnLoadMoreFrame.setVisibility(adapter.canLoadMore() ? View.VISIBLE : View.GONE);
+            btnLoadMoreFrame.setOnClickListener(v -> {
+                boolean more = adapter.increaseVisibleCount(pageSizeFrame);
+                if (!more || !adapter.canLoadMore()) {
+                    btnLoadMoreFrame.setVisibility(View.GONE);
+                }
+            });
+        }
 
         buttonAdd.setOnClickListener(v -> {
 
@@ -1058,12 +1168,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                                 int newHeight = (int) (originalWidth * (3.0 / 4.0));
                                                 Bitmap resizedBitmap = Bitmap.createScaledBitmap(image, originalWidth, newHeight, true);
 
-                                                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                                                resizedBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
-                                                byte[] bitmapBytes = baos.toByteArray();
-                                                String encodedBitmap = Base64.encodeToString(bitmapBytes, Base64.DEFAULT);
+                                                String toStore = UserAssetFileStore.saveBitmapAsFileToken(
+                                                    getApplicationContext(), resizedBitmap, true);
+                                                if (toStore == null) {
+                                                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                                    resizedBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
+                                                    toStore = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT);
+                                                }
 
-                                                bitmapList.add(encodedBitmap);
+                                                bitmapList.add(toStore);
 
                                             } catch (Exception e) {
                                                 Log.e("BitmapProcessing", "Lỗi xử lý ảnh: " + e.getMessage());
@@ -1079,12 +1192,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                                             currentIndex = bitmapList.size() - 1;
                                             editor.putInt("current_index", currentIndex);
                                             editor.apply();
+                                            MPhotoUserDataBackup.scheduleSave(getApplicationContext());
 
                                             // Hiển thị ảnh cuối cùng lên ImageView
                                             if (!bitmapList.isEmpty()) {
-                                                byte[] bitmapBytes = Base64.decode(bitmapList.get(currentIndex), Base64.DEFAULT);
-                                                Bitmap lastImage = BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
-                                                Glide.with(Activity_Camera2_Manual.this).load(lastImage).into(frame);
+                                                Bitmap lastImage = UserAssetFileStore.decodeListEntryToBitmap(
+                                                    Activity_Camera2_Manual.this, bitmapList.get(currentIndex));
+                                                if (lastImage != null) {
+                                                    Glide.with(Activity_Camera2_Manual.this).load(lastImage).into(frame);
+                                                }
                                             }
 
                                             showLoading(false); // Ẩn vòng xoay sau khi load xong
@@ -1132,302 +1248,671 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         // Store dialog reference to dismiss later
         buttonAdd.setTag(dialog);  // Store dialog reference for later dismissal
+        if (btnResyncFrames != null) {
+            btnResyncFrames.setOnClickListener(v -> runMonoFrameSyncFromServer(dialog));
+        }
     }
 
+    private void runMonoFrameSyncFromServer(AlertDialog parentDialog) {
+        String token = TokenManager.getInstance(this).getToken();
+        if (token == null || token.isEmpty()) {
+            Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (parentDialog != null && parentDialog.isShowing()) {
+            parentDialog.dismiss();
+        }
+        ProgressDialog pd = new ProgressDialog(this);
+        pd.setMessage(getString(R.string.mono_syncing));
+        pd.setCancelable(false);
+        pd.show();
+        MonoCacheSync.syncFramesInBackground(this, token, new MonoCacheSync.Listener() {
+            @Override
+            public void onSuccess() {
+                pd.dismiss();
+                SharedPreferences p = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+                String json = p.getString("bitmap_list", "[]");
+                bitmapList = new Gson().fromJson(json, new TypeToken<List<String>>() {}.getType());
+                currentIndex = p.getInt("current_index", 0);
+                if (bitmapList != null && !bitmapList.isEmpty()) {
+                    updateImageView(currentIndex);
+                } else {
+                    @SuppressLint("UseCompatLoadingForDrawables")
+                    Drawable noel = getResources().getDrawable(R.drawable.nothing, null);
+                    Bitmap b = imgSolve.drawableToBitmap(noel);
+                    frame.setImageBitmap(b);
+                }
+                Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_sync_ok, Toast.LENGTH_SHORT).show();
+                showImageFrameDialog();
+            }
+
+            @Override
+            public void onError(String message) {
+                pd.dismiss();
+                Toast.makeText(Activity_Camera2_Manual.this, message, Toast.LENGTH_LONG).show();
+                showImageFrameDialog();
+            }
+        });
+    }
+
+    private void runMonoSubPhotoSyncFromServer(AlertDialog parentDialog) {
+        String token = TokenManager.getInstance(this).getToken();
+        if (token == null || token.isEmpty()) {
+            Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (parentDialog != null && parentDialog.isShowing()) {
+            parentDialog.dismiss();
+        }
+        ProgressDialog pd = new ProgressDialog(this);
+        pd.setMessage(getString(R.string.mono_syncing));
+        pd.setCancelable(false);
+        pd.show();
+        MonoCacheSync.syncSubPhotosInBackground(this, token, new MonoCacheSync.Listener() {
+            @Override
+            public void onSuccess() {
+                pd.dismiss();
+                SharedPreferences p2 = getSharedPreferences("MyAppPrefs2", Context.MODE_PRIVATE);
+                String json = p2.getString("ImageViewList", "[]");
+                bitmapListImageView2 = new Gson().fromJson(json, new TypeToken<List<String>>() {}.getType());
+                currentIndexImageView2 = p2.getInt("indexImageView2", 0);
+                if (bitmapListImageView2 != null && !bitmapListImageView2.isEmpty()) {
+                    updateImageView2(currentIndexImageView2);
+                } else {
+                    @SuppressLint("UseCompatLoadingForDrawables")
+                    Drawable d = getResources().getDrawable(R.drawable.bottom, null);
+                    Bitmap b = imgSolve.drawableToBitmap(d);
+                    imageViewSecond.setImageBitmap(b);
+                    image = b;
+                    notifyMonoPreviewFlexRecalc();
+                }
+                Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_sync_ok, Toast.LENGTH_SHORT).show();
+                showImagePickerDialog();
+            }
+
+            @Override
+            public void onError(String message) {
+                pd.dismiss();
+                Toast.makeText(Activity_Camera2_Manual.this, message, Toast.LENGTH_LONG).show();
+                showImagePickerDialog();
+            }
+        });
+    }
+
+    private void clearIsoExposureRowBackgrounds() {
+        int[] ids = { R.id.isoText1, R.id.isoText2, R.id.isoText3, R.id.isoText4, R.id.isoText5, R.id.isoText6, R.id.isoText7, R.id.isoText8, R.id.exposureText1, R.id.exposureText2, R.id.exposureText3, R.id.exposureText4, R.id.exposureText5, R.id.exposureText6, R.id.exposureText7, R.id.exposureText8, R.id.exposureText9, R.id.exposureText10, R.id.exposureText11, R.id.exposureText12, R.id.exposureText14 };
+        for (int id : ids) {
+            TextView t = findViewById(id);
+            if (t != null) {
+                t.setBackgroundColor(Color.TRANSPARENT);
+            }
+        }
+    }
+
+    /** Cập nhật nhãn + nền mức đang chọn (ISO / phơi sáng) trên cột bên phải. */
+    private void refreshIsoExposurePanelDisplay() {
+        if (findViewById(R.id.isoText1) == null) {
+            return;
+        }
+        clearIsoExposureRowBackgrounds();
+        TextView isoText8 = findViewById(R.id.isoText8);
+        TextView isoText1 = findViewById(R.id.isoText1);
+        TextView isoText2 = findViewById(R.id.isoText2);
+        TextView isoText3 = findViewById(R.id.isoText3);
+        TextView isoText4 = findViewById(R.id.isoText4);
+        TextView isoText5 = findViewById(R.id.isoText5);
+        TextView isoText6 = findViewById(R.id.isoText6);
+        TextView isoText7 = findViewById(R.id.isoText7);
+        TextView exposureText11 = findViewById(R.id.exposureText11);
+        TextView exposureText1 = findViewById(R.id.exposureText1);
+        TextView exposureText2 = findViewById(R.id.exposureText2);
+        TextView exposureText3 = findViewById(R.id.exposureText3);
+        TextView exposureText4 = findViewById(R.id.exposureText4);
+        TextView exposureText5 = findViewById(R.id.exposureText5);
+        TextView exposureText6 = findViewById(R.id.exposureText6);
+        TextView exposureText7 = findViewById(R.id.exposureText7);
+        TextView exposureText8 = findViewById(R.id.exposureText8);
+        TextView exposureText9 = findViewById(R.id.exposureText9);
+        TextView exposureText12 = findViewById(R.id.exposureText12);
+        TextView exposureText14 = findViewById(R.id.exposureText14);
+        TextView exposureText10 = findViewById(R.id.exposureText10);
+
+        String isovalue = String.valueOf(ISOvalue);
+        String exposurevalue = String.valueOf(ExpoValue);
+
+        if (isoText8 != null) {
+            isoText8.setText(ISO_LEVELS[7]);
+            if (ISO_LEVELS[7].equals(isovalue)) {
+                isoText8.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText11 != null) {
+            exposureText11.setText(EXPOSURE_LEVELS_LABEL[12]);
+            if (EXPO_US[12].equals(exposurevalue)) {
+                exposureText11.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText1 != null) {
+            isoText1.setText(ISO_LEVELS[0]);
+            if (ISO_LEVELS[0].equals(isovalue)) {
+                isoText1.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText1 != null) {
+            exposureText1.setText(EXPOSURE_LEVELS_LABEL[0]);
+            if (EXPO_US[0].equals(exposurevalue)) {
+                exposureText1.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText2 != null) {
+            isoText2.setText(ISO_LEVELS[1]);
+            if (ISO_LEVELS[1].equals(isovalue)) {
+                isoText2.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText2 != null) {
+            exposureText2.setText(EXPOSURE_LEVELS_LABEL[1]);
+            if (EXPO_US[1].equals(exposurevalue)) {
+                exposureText2.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText3 != null) {
+            isoText3.setText(ISO_LEVELS[2]);
+            if (ISO_LEVELS[2].equals(isovalue)) {
+                isoText3.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText3 != null) {
+            exposureText3.setText(EXPOSURE_LEVELS_LABEL[2]);
+            if (EXPO_US[2].equals(exposurevalue)) {
+                exposureText3.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText4 != null) {
+            isoText4.setText(ISO_LEVELS[3]);
+            if (ISO_LEVELS[3].equals(isovalue)) {
+                isoText4.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText4 != null) {
+            exposureText4.setText(EXPOSURE_LEVELS_LABEL[3]);
+            if (EXPO_US[3].equals(exposurevalue)) {
+                exposureText4.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText5 != null) {
+            isoText5.setText(ISO_LEVELS[4]);
+            if (ISO_LEVELS[4].equals(isovalue)) {
+                isoText5.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText5 != null) {
+            exposureText5.setText(EXPOSURE_LEVELS_LABEL[4]);
+            if (EXPO_US[4].equals(exposurevalue)) {
+                exposureText5.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText6 != null) {
+            isoText6.setText(ISO_LEVELS[5]);
+            if (ISO_LEVELS[5].equals(isovalue)) {
+                isoText6.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText6 != null) {
+            exposureText6.setText(EXPOSURE_LEVELS_LABEL[5]);
+            if (EXPO_US[5].equals(exposurevalue)) {
+                exposureText6.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (isoText7 != null) {
+            isoText7.setText(ISO_LEVELS[6]);
+            if (ISO_LEVELS[6].equals(isovalue)) {
+                isoText7.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText7 != null) {
+            exposureText7.setText(EXPOSURE_LEVELS_LABEL[6]);
+            if (EXPO_US[6].equals(exposurevalue)) {
+                exposureText7.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText8 != null) {
+            exposureText8.setText(EXPOSURE_LEVELS_LABEL[7]);
+            if (EXPO_US[7].equals(exposurevalue)) {
+                exposureText8.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText9 != null) {
+            exposureText9.setText(EXPOSURE_LEVELS_LABEL[8]);
+            if (EXPO_US[8].equals(exposurevalue)) {
+                exposureText9.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText10 != null) {
+            exposureText10.setText(EXPOSURE_LEVELS_LABEL[11]);
+            if (EXPO_US[11].equals(exposurevalue)) {
+                exposureText10.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText12 != null) {
+            exposureText12.setText(EXPOSURE_LEVELS_LABEL[9]);
+            if (EXPO_US[9].equals(exposurevalue)) {
+                exposureText12.setBackgroundColor(Color.GRAY);
+            }
+        }
+        if (exposureText14 != null) {
+            exposureText14.setText(EXPOSURE_LEVELS_LABEL[10]);
+            if (EXPO_US[10].equals(exposurevalue)) {
+                exposureText14.setBackgroundColor(Color.GRAY);
+            }
+        }
+    }
+
+    private void bindIsoExposurePanel() {
+        if (findViewById(R.id.isoText1) == null) {
+            return;
+        }
+        refreshIsoExposurePanelDisplay();
+        findViewById(R.id.isoText8).setOnClickListener(v -> { applyISO(ISO_LEVELS[7]); updateISO(ISO_LEVELS[7]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText1).setOnClickListener(v -> { applyISO(ISO_LEVELS[0]); updateISO(ISO_LEVELS[0]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText2).setOnClickListener(v -> { applyISO(ISO_LEVELS[1]); updateISO(ISO_LEVELS[1]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText3).setOnClickListener(v -> { applyISO(ISO_LEVELS[2]); updateISO(ISO_LEVELS[2]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText4).setOnClickListener(v -> { applyISO(ISO_LEVELS[3]); updateISO(ISO_LEVELS[3]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText5).setOnClickListener(v -> { applyISO(ISO_LEVELS[4]); updateISO(ISO_LEVELS[4]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText6).setOnClickListener(v -> { applyISO(ISO_LEVELS[5]); updateISO(ISO_LEVELS[5]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.isoText7).setOnClickListener(v -> { applyISO(ISO_LEVELS[6]); updateISO(ISO_LEVELS[6]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText1).setOnClickListener(v -> { applyExpose(EXPO_US[0]); updateExposure(EXPO_US[0]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText2).setOnClickListener(v -> { applyExpose(EXPO_US[1]); updateExposure(EXPO_US[1]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText3).setOnClickListener(v -> { applyExpose(EXPO_US[2]); updateExposure(EXPO_US[2]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText4).setOnClickListener(v -> { applyExpose(EXPO_US[3]); updateExposure(EXPO_US[3]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText5).setOnClickListener(v -> { applyExpose(EXPO_US[4]); updateExposure(EXPO_US[4]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText6).setOnClickListener(v -> { applyExpose(EXPO_US[5]); updateExposure(EXPO_US[5]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText7).setOnClickListener(v -> { applyExpose(EXPO_US[6]); updateExposure(EXPO_US[6]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText8).setOnClickListener(v -> { applyExpose(EXPO_US[7]); updateExposure(EXPO_US[7]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText9).setOnClickListener(v -> { applyExpose(EXPO_US[8]); updateExposure(EXPO_US[8]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText10).setOnClickListener(v -> { applyExpose(EXPO_US[11]); updateExposure(EXPO_US[11]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText12).setOnClickListener(v -> { applyExpose(EXPO_US[9]); updateExposure(EXPO_US[9]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText14).setOnClickListener(v -> { applyExpose(EXPO_US[10]); updateExposure(EXPO_US[10]); refreshIsoExposurePanelDisplay(); });
+        findViewById(R.id.exposureText11).setOnClickListener(v -> { applyExpose(EXPO_US[12]); updateExposure(EXPO_US[12]); refreshIsoExposurePanelDisplay(); });
+    }
 
     private void showSettingDialog() {
-        LayoutInflater inflater = getLayoutInflater();
-        View dialogView = inflater.inflate(R.layout.dialog_2_columns_layout, null);
-
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_manual_settings, null);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setView(dialogView);
         builder.setNegativeButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
-        AlertDialog dialog1 = builder.create();
-
-        // Lấy các thành phần từ layout dialog
-        TextView isoText8 = dialogView.findViewById(R.id.isoText8);
-        TextView isoText1 = dialogView.findViewById(R.id.isoText1);
-        TextView isoText2 = dialogView.findViewById(R.id.isoText2);
-        TextView isoText3 = dialogView.findViewById(R.id.isoText3);
-        TextView isoText4 = dialogView.findViewById(R.id.isoText4);
-        TextView isoText5 = dialogView.findViewById(R.id.isoText5);
-        TextView isoText6 = dialogView.findViewById(R.id.isoText6);
-        TextView isoText7 = dialogView.findViewById(R.id.isoText7);
-
-        TextView exposureText11 = dialogView.findViewById(R.id.exposureText11);
-        TextView exposureText1 = dialogView.findViewById(R.id.exposureText1);
-        TextView exposureText2 = dialogView.findViewById(R.id.exposureText2);
-        TextView exposureText3 = dialogView.findViewById(R.id.exposureText3);
-        TextView exposureText4 = dialogView.findViewById(R.id.exposureText4);
-        TextView exposureText5 = dialogView.findViewById(R.id.exposureText5);
-        TextView exposureText6 = dialogView.findViewById(R.id.exposureText6);
-        TextView exposureText7 = dialogView.findViewById(R.id.exposureText7);
-        TextView exposureText8 = dialogView.findViewById(R.id.exposureText8);
-        TextView exposureText9 = dialogView.findViewById(R.id.exposureText9);
-        TextView exposureText12 = dialogView.findViewById(R.id.exposureText12);
-        TextView exposureText14 = dialogView.findViewById(R.id.exposureText14);
-        TextView exposureText10 = dialogView.findViewById(R.id.exposureText10);
-
-
-        // Các mức ISO và Exposure
-        final String[] isoLevels = { "200", "300", "400", "500", "600", "700", "800" ,"100"};
-        final String[] exposureLevelsDisplay = { "0.2s", "0.3s", "0.4s", "0.5s", "0.6s","0.7s","0.8s","0.9s", "1s","1.2s","1.4s", "2.0s","0.1s" };
-        final String[] exposureLevels = { "20000000", "30000000", "40000000", "50000000", "60000000","70000000","80000000","90000000", "100000000","120000000","140000000", "250000000","10000000" };
-
-        // Lấy isovalue và exposurevalue từ đâu đó
-        String isovalue = String.valueOf(ISOvalue);     // Thay vào giá trị của isovalue
-        String exposurevalue = String.valueOf(ExpoValue); // Thay vào giá trị của exposurevalue
-
-        // Hiển thị danh sách cột bên trái (ISO) và cột bên phải (Exposure)
-        isoText8.setText(isoLevels[7]);
-        if (isoLevels[7].equals(isovalue)) {
-            isoText8.setBackgroundColor(Color.GRAY);
+        final AlertDialog dialog1 = builder.create();
+        androidx.appcompat.widget.SwitchCompat swPrinterTest = dialogView.findViewById(R.id.switchPrinterTestMode);
+        if (swPrinterTest != null) {
+            swPrinterTest.setChecked(PrinterTestMode.isEnabled(this));
+            swPrinterTest.setOnCheckedChangeListener((buttonView, isChecked) ->
+                    PrinterTestMode.setEnabled(Activity_Camera2_Manual.this, isChecked));
         }
-        exposureText11.setText(exposureLevelsDisplay[12]);
-        if (exposureLevels[12].equals(exposurevalue)) {
-            exposureText11.setBackgroundColor(Color.GRAY);
+        SharedPreferences prefSettings = getSharedPreferences("settings", MODE_PRIVATE);
+        androidx.appcompat.widget.SwitchCompat swDownload = dialogView.findViewById(R.id.switchDownload);
+        if (swDownload != null) {
+            swDownload.setChecked(prefSettings.getBoolean("Download", false));
+            swDownload.setOnCheckedChangeListener((buttonView, isChecked) ->
+                    prefSettings.edit().putBoolean("Download", isChecked).apply());
         }
-        isoText1.setText(isoLevels[0]);
-        exposureText1.setText(exposureLevelsDisplay[0]);
-        if (isoLevels[0].equals(isovalue)) {
-            isoText1.setBackgroundColor(Color.GRAY);
+        Button btnLogout = dialogView.findViewById(R.id.button_logout);
+        if (btnLogout != null) {
+            btnLogout.setOnClickListener(v -> {
+                dialog1.dismiss();
+                TokenManager.getInstance(Activity_Camera2_Manual.this).clearToken();
+                Intent i = new Intent(Activity_Camera2_Manual.this, LoginActivity.class);
+                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(i);
+                finish();
+            });
         }
-        if (exposureLevels[0].equals(exposurevalue)) {
-            exposureText1.setBackgroundColor(Color.GRAY);
+        TextView textAppUpdateFile = dialogView.findViewById(R.id.text_app_update_file);
+        bindAppUpdateFileLabel(textAppUpdateFile);
+        Button btnCheckUpdate = dialogView.findViewById(R.id.button_check_app_update);
+        ProgressBar progressCheckUpdate = dialogView.findViewById(R.id.progress_check_app_update);
+        if (btnCheckUpdate != null) {
+            final Button btnUpd = btnCheckUpdate;
+            final ProgressBar pbUpd = progressCheckUpdate;
+            final TextView tvFileLabel = textAppUpdateFile;
+            btnCheckUpdate.setOnClickListener(v -> SoftwareUpdateHelper.checkAndDownloadWithFeedback(
+                    Activity_Camera2_Manual.this, false,
+                    () -> {
+                        if (pbUpd != null) {
+                            pbUpd.setVisibility(View.VISIBLE);
+                        }
+                        btnUpd.setEnabled(false);
+                        btnUpd.setText(R.string.app_update_downloading);
+                    },
+                    () -> {
+                        if (pbUpd != null) {
+                            pbUpd.setVisibility(View.GONE);
+                        }
+                        btnUpd.setEnabled(true);
+                        btnUpd.setText(R.string.app_update_check_download);
+                        bindAppUpdateFileLabel(tvFileLabel);
+                    }
+            ));
         }
-
-        isoText2.setText(isoLevels[1]);
-        exposureText2.setText(exposureLevelsDisplay[1]);
-        if (isoLevels[1].equals(isovalue)) {
-            isoText2.setBackgroundColor(Color.GRAY);
+        Button btnInstallUpdate = dialogView.findViewById(R.id.button_install_app_update);
+        if (btnInstallUpdate != null) {
+            btnInstallUpdate.setOnClickListener(v -> SoftwareUpdateHelper.tryInstallPending(Activity_Camera2_Manual.this));
         }
-        if (exposureLevels[1].equals(exposurevalue)) {
-            exposureText2.setBackgroundColor(Color.GRAY);
-        }
-
-        isoText3.setText(isoLevels[2]);
-        exposureText3.setText(exposureLevelsDisplay[2]);
-        if (isoLevels[2].equals(isovalue)) {
-            isoText3.setBackgroundColor(Color.GRAY);
-        }
-        if (exposureLevels[2].equals(exposurevalue)) {
-            exposureText3.setBackgroundColor(Color.GRAY);
-        }
-
-        isoText4.setText(isoLevels[3]);
-        exposureText4.setText(exposureLevelsDisplay[3]);
-        if (isoLevels[3].equals(isovalue)) {
-            isoText4.setBackgroundColor(Color.GRAY);
-        }
-        if (exposureLevels[3].equals(exposurevalue)) {
-            exposureText4.setBackgroundColor(Color.GRAY);
-        }
-
-        isoText5.setText(isoLevels[4]);
-        exposureText5.setText(exposureLevelsDisplay[4]);
-        if (isoLevels[4].equals(isovalue)) {
-            isoText5.setBackgroundColor(Color.GRAY);
-        }
-        if (exposureLevels[4].equals(exposurevalue)) {
-            exposureText5.setBackgroundColor(Color.GRAY);
-        }
-
-        isoText6.setText(isoLevels[5]);
-        exposureText6.setText(exposureLevelsDisplay[5]);
-        if (isoLevels[5].equals(isovalue)) {
-            isoText6.setBackgroundColor(Color.GRAY);
-        }
-        if (exposureLevels[5].equals(exposurevalue)) {
-            exposureText6.setBackgroundColor(Color.GRAY);
-        }
-
-        isoText7.setText(isoLevels[6]);
-        exposureText7.setText(exposureLevelsDisplay[6]);
-        if (isoLevels[6].equals(isovalue)) {
-            isoText7.setBackgroundColor(Color.GRAY);
-        }
-        if (exposureLevels[6].equals(exposurevalue)) {
-            exposureText7.setBackgroundColor(Color.GRAY);
-        }
-
-        exposureText8.setText(exposureLevelsDisplay[7]);
-        if (exposureLevels[7].equals(exposurevalue)) {
-            exposureText8.setBackgroundColor(Color.GRAY);
-        }
-
-        exposureText9.setText(exposureLevelsDisplay[8]);
-        if (exposureLevels[8].equals(exposurevalue)) {
-            exposureText9.setBackgroundColor(Color.GRAY);
-        }
-
-        exposureText10.setText(exposureLevelsDisplay[11]);
-        if (exposureLevels[11].equals(exposurevalue)) {
-            exposureText10.setBackgroundColor(Color.GRAY);
-        }
-        exposureText12.setText(exposureLevelsDisplay[9]);
-        if (exposureLevels[9].equals(exposurevalue)) {
-            exposureText12.setBackgroundColor(Color.GRAY);
-        }
-        exposureText14.setText(exposureLevelsDisplay[10]);
-        if (exposureLevels[10].equals(exposurevalue)) {
-            exposureText14.setBackgroundColor(Color.GRAY);
-        }
-
-
-        // Set click listeners
-        isoText8.setOnClickListener(v -> {
-            applyISO(isoLevels[7]);
-            updateISO(isoLevels[7]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        // Set click listeners
-        isoText1.setOnClickListener(v -> {
-            applyISO(isoLevels[0]);
-            updateISO(isoLevels[0]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        isoText2.setOnClickListener(v -> {
-            applyISO(isoLevels[1]);
-            updateISO(isoLevels[1]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        isoText3.setOnClickListener(v -> {
-            applyISO(isoLevels[2]);
-            updateISO(isoLevels[2]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        isoText4.setOnClickListener(v -> {
-            applyISO(isoLevels[3]);
-            updateISO(isoLevels[3]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        isoText5.setOnClickListener(v -> {
-            applyISO(isoLevels[4]);
-            updateISO(isoLevels[4]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        isoText6.setOnClickListener(v -> {
-            applyISO(isoLevels[5]);
-            updateISO(isoLevels[5]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        isoText7.setOnClickListener(v -> {
-            applyISO(isoLevels[6]);
-            updateISO(isoLevels[6]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText1.setOnClickListener(v -> {
-            applyExpose(exposureLevels[0]);
-            updateExposure(exposureLevels[0]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText2.setOnClickListener(v -> {
-            applyExpose(exposureLevels[1]);
-            updateExposure(exposureLevels[1]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText3.setOnClickListener(v -> {
-            applyExpose(exposureLevels[2]);
-            updateExposure(exposureLevels[2]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText4.setOnClickListener(v -> {
-            applyExpose(exposureLevels[3]);
-            updateExposure(exposureLevels[3]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText5.setOnClickListener(v -> {
-            applyExpose(exposureLevels[4]);
-            updateExposure(exposureLevels[4]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText6.setOnClickListener(v -> {
-            applyExpose(exposureLevels[5]);
-            updateExposure(exposureLevels[5]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText7.setOnClickListener(v -> {
-            applyExpose(exposureLevels[6]);
-            updateExposure(exposureLevels[6]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText8.setOnClickListener(v -> {
-            applyExpose(exposureLevels[7]);
-            updateExposure(exposureLevels[7]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-        exposureText9.setOnClickListener(v -> {
-            applyExpose(exposureLevels[8]);
-            updateExposure(exposureLevels[8]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-        exposureText10.setOnClickListener(v -> {
-            applyExpose(exposureLevels[11]);
-            updateExposure(exposureLevels[11]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-        exposureText12.setOnClickListener(v -> {
-            applyExpose(exposureLevels[9]);
-            updateExposure(exposureLevels[9]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-        exposureText14.setOnClickListener(v -> {
-            applyExpose(exposureLevels[10]);
-            updateExposure(exposureLevels[10]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        exposureText11.setOnClickListener(v -> {
-            applyExpose(exposureLevels[12]);
-            updateExposure(exposureLevels[12]);
-            dialog1.dismiss();
-            reloadDialog(); // Reload lại dialog
-        });
-
-        // Thêm nút "Thoát" với setNegativeButton
-
         dialog1.show();
     }
 
+    private void bindAppUpdateFileLabel(@Nullable TextView tv) {
+        if (tv == null) {
+            return;
+        }
+        String name = SoftwareUpdateHelper.getPendingApkFileNameForDisplay(this);
+        if (name != null) {
+            tv.setText(getString(R.string.app_update_file_in_settings, name));
+        } else {
+            tv.setText(R.string.app_update_no_saved_file);
+        }
+    }
 
+    private void refreshMonoFolderThumbnail() {
+        if (imageMonoLatestThumb == null) {
+            return;
+        }
+        executorService.execute(() -> {
+            android.net.Uri u = MonoFolderImages.getLatestImageUri(Activity_Camera2_Manual.this);
+            runOnUiThread(() -> {
+                if (u == null) {
+                    Glide.with(Activity_Camera2_Manual.this).clear(imageMonoLatestThumb);
+                    imageMonoLatestThumb.setImageDrawable(null);
+                    imageMonoLatestThumb.setBackgroundResource(R.drawable.mono_folder_thumb_bg);
+                } else {
+                    imageMonoLatestThumb.setBackgroundResource(R.drawable.mono_folder_thumb_bg);
+                    int sidePx = getResources().getDimensionPixelSize(R.dimen.mono_thumb);
+                    int decode = Math.max(400, (int) (sidePx * 2.5f));
+                    RequestOptions ro = new RequestOptions()
+                            .fitCenter()
+                            .format(DecodeFormat.PREFER_ARGB_8888)
+                            .downsample(DownsampleStrategy.CENTER_INSIDE)
+                            .override(decode, decode);
+                    Glide.with(Activity_Camera2_Manual.this)
+                            .load(u)
+                            .apply(ro)
+                            .into(imageMonoLatestThumb);
+                }
+            });
+        });
+    }
 
-    private void reloadDialog() {
-        showSettingDialog(); // Gọi lại showSettingDialog() để load lại dialog
+    /**
+     * Sau khi lưu ảnh vào thư mục Mono — MediaStore đôi khi cập nhật chậm nên gọi lại một lần.
+     */
+    private void scheduleMonoFolderThumbnailUpdate() {
+        refreshMonoFolderThumbnail();
+        if (imageMonoLatestThumb != null) {
+            imageMonoLatestThumb.removeCallbacks(monoFolderThumbRefreshRetry);
+            imageMonoLatestThumb.postDelayed(monoFolderThumbRefreshRetry, 500);
+        }
+    }
+
+    /**
+     * Mở thư mục Google Drive {@code M-Photo Mono_userId} trên trình duyệt.
+     */
+    /**
+     * Mở bằng trình chọn ứng dụng: tránh mặc định mở app Drive (báo lỗi khi chưa có tài khoản Google trên máy). Nên chọn Chrome / trình duyệt.
+     */
+    private void openDriveFolderUrl(String link) {
+        if (link == null || link.isEmpty()) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link));
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            startActivity(Intent.createChooser(intent, getString(R.string.drive_choose_app_open) + "\n" + getString(R.string.drive_chooser_subtitle)));
+        } catch (Exception e) {
+            Log.e(TAG, "open drive", e);
+            Toast.makeText(this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * Hiển thị QR; chỉ khi chạm vào mã QR mới mở link (không mở trình duyệt ngay khi bấm nút).
+     */
+    private void openMonoUserDriveFolderQrDialog() {
+        GoogleDriveService g = new GoogleDriveService(this);
+        if (!g.isDriveReady()) {
+            Toast.makeText(this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
+        String link = g.getMonoUserFolderLink(this);
+        if (link != null) {
+            showDriveFolderQrDialogInternal(link, g);
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            Toast.makeText(this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
+        Toast.makeText(this, R.string.drive_link_creating, Toast.LENGTH_SHORT).show();
+        g.createOrGetSubFolder(this).thenAccept(id -> runOnUiThread(() -> {
+            String l = GoogleDriveService.folderIdToWebLink(id);
+            if (l == null) {
+                Toast.makeText(Activity_Camera2_Manual.this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
+                return;
+            }
+            showDriveFolderQrDialogInternal(l, new GoogleDriveService(Activity_Camera2_Manual.this));
+        }));
+    }
+
+    private void showDriveFolderQrDialogInternal(String link, GoogleDriveService g) {
+        View root = getLayoutInflater().inflate(R.layout.dialog_mono_drive_qr, null);
+        ImageView iv = root.findViewById(R.id.imageMonoDriveQr);
+        ProgressBar pb = root.findViewById(R.id.progressMonoDriveQr);
+        if (iv == null) {
+            return;
+        }
+        iv.setVisibility(View.GONE);
+        if (pb != null) {
+            pb.setVisibility(View.VISIBLE);
+        }
+        iv.setOnClickListener(v -> openDriveFolderUrl(link));
+
+        AlertDialog dlg = new AlertDialog.Builder(this)
+            .setTitle(R.string.mono_gallery_qr_dialog_title)
+            .setView(root)
+            .setPositiveButton(R.string.close, (d, w) -> d.dismiss())
+            .create();
+        dlg.show();
+
+        final Activity_Camera2_Manual activity = this;
+        executorService.execute(() -> {
+            Bitmap bm = g.generateQRCodeForUrl(link);
+            runOnUiThread(() -> {
+                if (activity.isFinishing()) {
+                    return;
+                }
+                if (pb != null) {
+                    pb.setVisibility(View.GONE);
+                }
+                if (bm != null) {
+                    iv.setImageBitmap(bm);
+                    iv.setVisibility(View.VISIBLE);
+                } else {
+                    Toast.makeText(activity, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
+                }
+            });
+        });
+    }
+
+    private void showMonoGalleryPickerDialog() {
+        View root = getLayoutInflater().inflate(R.layout.dialog_mono_gallery, null);
+        TextView openDrive = root.findViewById(R.id.textOpenMonoDriveFolder);
+        if (openDrive != null) {
+            openDrive.setOnClickListener(v -> openMonoUserDriveFolderQrDialog());
+        }
+        RecyclerView rv = root.findViewById(R.id.recyclerMonoGallery);
+        TextView empty = root.findViewById(R.id.textMonoGalleryEmpty);
+        ProgressBar progress = root.findViewById(R.id.progressMonoGallery);
+        Button btnLoadMore = root.findViewById(R.id.btnLoadMoreMonoGallery);
+        if (rv == null || progress == null) {
+            return;
+        }
+
+        GridLayoutManager glm = new GridLayoutManager(this, 3);
+        rv.setLayoutManager(glm);
+        MonoGalleryThumbAdapter adapter = new MonoGalleryThumbAdapter();
+        rv.setAdapter(adapter);
+        int gapPx = (int) (16 * getResources().getDisplayMetrics().density);
+        rv.addItemDecoration(new MonoGalleryGridGapDecoration(3, gapPx));
+
+        final boolean[] loading = {false};
+        final boolean[] hasMore = {true};
+        final int[] nextOffset = {0};
+        final int dialogPageSize = 5;
+
+        Runnable updateLoadMoreUi = () -> {
+            if (btnLoadMore == null) {
+                return;
+            }
+            btnLoadMore.setVisibility(hasMore[0] ? View.VISIBLE : View.GONE);
+            btnLoadMore.setEnabled(!loading[0] && hasMore[0]);
+        };
+
+        Runnable tryLoadNext = new Runnable() {
+            @Override
+            public void run() {
+                if (loading[0] || !hasMore[0]) {
+                    return;
+                }
+                if (nextOffset[0] >= MonoFolderImages.MAX_ITEMS) {
+                    hasMore[0] = false;
+                    return;
+                }
+                loading[0] = true;
+                final int requestOffset = nextOffset[0];
+                final boolean isFirst = (requestOffset == 0);
+                executorService.execute(() -> {
+                    List<Uri> page = MonoFolderImages.loadPage(Activity_Camera2_Manual.this, requestOffset);
+                    runOnUiThread(() -> {
+                        loading[0] = false;
+                        int nRaw = page.size();
+                        int take = Math.min(dialogPageSize, nRaw);
+                        List<Uri> shown = (take <= 0) ? Collections.emptyList() : new ArrayList<>(page.subList(0, take));
+                        if (isFirst) {
+                            progress.setVisibility(View.GONE);
+                            if (shown.isEmpty()) {
+                                if (empty != null) {
+                                    empty.setVisibility(View.VISIBLE);
+                                }
+                                rv.setVisibility(View.GONE);
+                                hasMore[0] = false;
+                            } else {
+                                if (empty != null) {
+                                    empty.setVisibility(View.GONE);
+                                }
+                                rv.setVisibility(View.VISIBLE);
+                                adapter.setInitial(shown);
+                                nextOffset[0] += shown.size();
+                            }
+                        } else {
+                            if (!shown.isEmpty()) {
+                                adapter.appendPage(shown);
+                                nextOffset[0] += shown.size();
+                            }
+                        }
+                        if (shown.size() < dialogPageSize || nextOffset[0] >= MonoFolderImages.MAX_ITEMS) {
+                            hasMore[0] = false;
+                        }
+                        updateLoadMoreUi.run();
+                    });
+                });
+            }
+        };
+
+        final Runnable[] reloadAll = new Runnable[1];
+        reloadAll[0] = () -> {
+            loading[0] = false;
+            nextOffset[0] = 0;
+            hasMore[0] = true;
+            progress.setVisibility(View.VISIBLE);
+            rv.setVisibility(View.VISIBLE);
+            if (empty != null) {
+                empty.setVisibility(View.GONE);
+            }
+            updateLoadMoreUi.run();
+            loading[0] = true;
+            executorService.execute(() -> {
+                List<Uri> page = MonoFolderImages.loadPage(Activity_Camera2_Manual.this, 0);
+                runOnUiThread(() -> {
+                    loading[0] = false;
+                    progress.setVisibility(View.GONE);
+                    int nRaw = page.size();
+                    int take = Math.min(dialogPageSize, nRaw);
+                    List<Uri> shown = (take <= 0) ? Collections.emptyList() : new ArrayList<>(page.subList(0, take));
+                    if (shown.isEmpty()) {
+                        adapter.setInitial(Collections.emptyList());
+                        if (empty != null) {
+                            empty.setVisibility(View.VISIBLE);
+                        }
+                        rv.setVisibility(View.GONE);
+                        hasMore[0] = false;
+                    } else {
+                        if (empty != null) {
+                            empty.setVisibility(View.GONE);
+                        }
+                        rv.setVisibility(View.VISIBLE);
+                        adapter.setInitial(shown);
+                        nextOffset[0] = shown.size();
+                        hasMore[0] = shown.size() >= dialogPageSize && nextOffset[0] < MonoFolderImages.MAX_ITEMS;
+                    }
+                    updateLoadMoreUi.run();
+                    rv.scrollToPosition(0);
+                });
+            });
+        };
+
+        adapter.setOnDeleteListener((position, uri) -> {
+            new AlertDialog.Builder(this)
+                    .setMessage(R.string.mono_gallery_delete_confirm)
+                    .setNegativeButton(R.string.Cancel, (d, w) -> d.dismiss())
+                    .setPositiveButton(R.string.mono_gallery_yes_delete, (d, w) -> {
+                        d.dismiss();
+                        executorService.execute(() -> {
+                            boolean ok = MonoFolderImages.deleteImage(Activity_Camera2_Manual.this, uri);
+                            runOnUiThread(() -> {
+                                if (ok) {
+                                    Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_gallery_deleted, Toast.LENGTH_SHORT).show();
+                                    if (reloadAll[0] != null) {
+                                        reloadAll[0].run();
+                                    }
+                                } else {
+                                    Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_gallery_delete_failed, Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        });
+                    })
+                    .show();
+        });
+
+        tryLoadNext.run();
+
+        if (btnLoadMore != null) {
+            btnLoadMore.setOnClickListener(v -> tryLoadNext.run());
+            updateLoadMoreUi.run();
+        }
+
+        AlertDialog galleryDialog = new AlertDialog.Builder(this)
+                .setView(root)
+                .setNegativeButton(R.string.close, (d, w) -> d.dismiss())
+                .create();
+        galleryDialog.setOnDismissListener(d -> refreshMonoFolderThumbnail());
+        galleryDialog.show();
+        Window w = galleryDialog.getWindow();
+        if (w != null) {
+            DisplayMetrics m = new DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getMetrics(m);
+            w.setLayout(
+                    (int) (m.widthPixels * 0.92f),
+                    (int) (m.heightPixels * 0.8f)
+            );
+        }
     }
 
     // Hiển thị dialog chọn ISO
@@ -1486,6 +1971,203 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.d("CameraEXP", "Error " + e);
         }
     }
+
+    private void onMonoPreviewFlexLayout() {
+        applyMonoPreviewFlexLayout();
+    }
+
+    private View getMonoPreviewFlexSizeRef() {
+        return monoPreviewCenterColumn != null ? monoPreviewCenterColumn : monoPreviewFlexHost;
+    }
+
+    private void scheduleApplyMonoPreviewFlex() {
+        View ref = getMonoPreviewFlexSizeRef();
+        if (ref != null) {
+            ref.post(this::applyMonoPreviewFlexLayout);
+        }
+    }
+
+    private void notifyMonoPreviewFlexRecalc() {
+        lastMonoFlexSignature = Integer.MIN_VALUE;
+        scheduleApplyMonoPreviewFlex();
+    }
+
+    /** tỷ lệ cao/rộng (dọc/ngang) của ảnh phụ, để ước dọc = w*A; live luôn 4:3 theo cùng w. */
+    private float resolveMonoSecondaryImageAspect() {
+        if (image != null && image.getWidth() > 0) {
+            return image.getHeight() / (float) image.getWidth();
+        }
+        if (imageViewSecond == null) {
+            return 1f;
+        }
+        Drawable d = imageViewSecond.getDrawable();
+        if (d == null) {
+            return 1f;
+        }
+        int iw = d.getIntrinsicWidth();
+        int ih = d.getIntrinsicHeight();
+        if (iw > 0 && ih > 0) {
+            return ih / (float) iw;
+        }
+        return 1f;
+    }
+
+    /**
+     * Thu cùng bề ngang w cho live 4:3 + ảnh phụ (cao w*A) sao cho (3/4)w + gap + w*A vừa khung bố cục.
+     */
+    private void applyMonoPreviewFlexLayout() {
+        View sizeRef = getMonoPreviewFlexSizeRef();
+        if (sizeRef == null || monoPreviewFlexContent == null || frameMonoSecond == null) {
+            return;
+        }
+        int hAvail = sizeRef.getHeight();
+        int wParent = sizeRef.getWidth();
+        if (monoPreviewFlexHost != null) {
+            int hostW = monoPreviewFlexHost.getWidth();
+            if (hostW > 0) {
+                wParent = hostW;
+            }
+        }
+        if (hAvail < 2 || wParent < 2) {
+            return;
+        }
+        /* padding 2dp mỗi cạnh trên mono_preview_flex_content (XML) */
+        int edgePad = Math.max(0, Math.round(4f * getResources().getDisplayMetrics().density));
+        int hForFit = Math.max(2, hAvail - edgePad);
+        float gapPx = 3f * getResources().getDisplayMetrics().density;
+        int gap = Math.max(1, Math.round(gapPx));
+        float aSec = resolveMonoSecondaryImageAspect();
+        if (aSec < 0.1f) {
+            aSec = 0.1f;
+        }
+        if (aSec > 8f) {
+            aSec = 8f;
+        }
+        double denom = 0.75 + aSec;
+        int wInner = (int) Math.max(1, Math.floor((hForFit - gap) / denom));
+        int w = wInner + edgePad;
+        if (w > wParent) {
+            w = wParent;
+            wInner = w - edgePad;
+            if (wInner < 1) {
+                wInner = 1;
+            }
+        }
+        int hLivePx = (int) (wInner * 0.75f);
+        int hSecApprox = (int) Math.round(wInner * aSec);
+        if (hLivePx + gap + hSecApprox > hForFit) {
+            wInner = (int) Math.max(1, Math.floor((hForFit - gap) / denom));
+            w = wInner + edgePad;
+            w = Math.min(w, wParent);
+            wInner = w - edgePad;
+            if (wInner < 1) {
+                wInner = 1;
+            }
+        }
+        int sig = Objects.hash(w, wParent, hForFit, image == null ? 0 : System.identityHashCode(image), Float.floatToIntBits(aSec));
+        if (sig == lastMonoFlexSignature) {
+            return;
+        }
+        lastMonoFlexSignature = sig;
+
+        FrameLayout.LayoutParams outer = (FrameLayout.LayoutParams) monoPreviewFlexContent.getLayoutParams();
+        if (outer == null) {
+            outer = new FrameLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        } else {
+            outer.width = w;
+            outer.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        }
+        outer.gravity = Gravity.CENTER;
+        monoPreviewFlexContent.setLayoutParams(outer);
+
+        LinearLayout.LayoutParams fp = (LinearLayout.LayoutParams) frameMonoSecond.getLayoutParams();
+        if (fp == null) {
+            fp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        } else {
+            fp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            fp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+        }
+        frameMonoSecond.setLayoutParams(fp);
+    }
+
+    /** Chạm chụp gắn trên TextureView; layer khung/preview/đếm nằm trên nên cũng phải bật/tắt cùng. */
+    private void setLiveViewCaptureInputEnabled(boolean enabled) {
+        if (textureView != null) {
+            textureView.setEnabled(enabled);
+        }
+        if (frame != null) {
+            frame.setEnabled(enabled);
+        }
+        if (imageViewPreview != null) {
+            imageViewPreview.setEnabled(enabled);
+        }
+        if (countdown != null) {
+            countdown.setEnabled(enabled);
+        }
+    }
+
+    private boolean needWaitForDriveUploadPipeline() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return false;
+        }
+        return getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("Download", false);
+    }
+
+    private void releaseLiveCaptureAfterDrive() {
+        blockLiveCaptureForDrive = false;
+        setLiveViewCaptureInputEnabled(true);
+    }
+
+    private void showPostCapturePreview(Bitmap combinedColor) {
+        runOnUiThread(() -> {
+            try {
+                if (imageViewPreview != null) {
+                    imageViewPreview.setImageBitmap(combinedColor);
+                    imageViewPreview.setVisibility(View.VISIBLE);
+                }
+                if (frame != null) {
+                    frame.setVisibility(View.GONE);
+                }
+                if (layoutPrintCancelRow != null) {
+                    layoutPrintCancelRow.setVisibility(View.VISIBLE);
+                }
+                if (btnPrint != null) {
+                    btnPrint.setEnabled(true);
+                }
+                if (btnCancel != null) {
+                    btnCancel.setEnabled(true);
+                }
+                setLiveViewCaptureInputEnabled(false);
+            } catch (Exception e) {
+                Log.e("FrameLayoutError", "show post capture", e);
+            }
+        });
+    }
+
+    /** Gọi từ main thread, hoặc từ {@link #hidePostCaptureUi} qua runOnUiThread. */
+    private void applyHidePostCaptureOnUi() {
+        if (imageViewPreview != null) {
+            imageViewPreview.setImageBitmap(null);
+            imageViewPreview.setVisibility(View.GONE);
+        }
+        if (frame != null) {
+            frame.setVisibility(View.VISIBLE);
+        }
+        if (layoutPrintCancelRow != null) {
+            layoutPrintCancelRow.setVisibility(View.GONE);
+        }
+        if (btnPrint != null) {
+            btnPrint.setEnabled(false);
+        }
+        if (btnCancel != null) {
+            btnCancel.setEnabled(false);
+        }
+    }
+
+    private void hidePostCaptureUi() {
+        runOnUiThread(this::applyHidePostCaptureOnUi);
+    }
+
     private void imageProcessing (String path) {
 
         Bitmap origin = BitmapFactory.decodeFile(path);
@@ -1495,21 +2177,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
 
         bmp.get().setDensity(dpi);
-        btnPrint=findViewById(R.id.btnPrint);
-        btnCancel=findViewById(R.id.btnCancel);
-        imageViewPreview = findViewById(R.id.imageViewPreview);
-
-        runOnUiThread(() -> {
-            try {
-                btnPrint.setEnabled(true);
-                btnCancel.setEnabled(true);
-                frameLayoutPopup.setVisibility(View.VISIBLE);
-                textureView.setEnabled(false);
-
-            } catch (Exception e) {
-                Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
-            }
-        });
 
         float contrast = 1.4f;
         int light = 0;
@@ -1521,51 +2188,27 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         adjustedBitmap2[0] = imgSolve.adjustContrast(adjustedBitmap2[0], contrastValue[0]);
         adjustedBitmap2[0].setDensity(origin.getDensity());
 
-        //Xu ly khung anh
+        //Xu ly khung anh (màu cho lưu; trắng-đen chỉ khi in)
         @SuppressLint("UseCompatLoadingForDrawables")
         Drawable noel = getResources().getDrawable(R.drawable.nothing, null);
         Bitmap bitmapFrameNull = imgSolve.drawableToBitmap(noel);
 
         Bitmap bitmapFrame;
-        // Kiểm tra xem bitmapList có phần tử không trước khi lấy currentIndex
         if (bitmapList != null && !bitmapList.isEmpty()) {
-            String encodedBitmap = bitmapList.get(currentIndex);
+            String entry = bitmapList.get(currentIndex);
 
-            if (encodedBitmap == null) {
-                bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu null
+            if (entry == null) {
+                bitmapFrame = bitmapFrameNull;
             } else {
-                // Decode Base64 để lấy Bitmap
-                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+                bitmapFrame = UserAssetFileStore.decodeListEntryToBitmap(this, entry);
+                if (bitmapFrame == null) {
+                    bitmapFrame = bitmapFrameNull;
+                }
             }
         } else {
-            bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu bitmapList trống
+            bitmapFrame = bitmapFrameNull;
         }
-
-        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
-        bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
-        //-----------------------------------------------------------------------------------------
-
-        // Kiểm tra xem bitmapList có phần tử không trước khi lấy currentIndex
-        if (bitmapList != null && !bitmapList.isEmpty()) {
-            String encodedBitmap = bitmapList.get(currentIndex);
-
-            if (encodedBitmap == null) {
-                bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu null
-            } else {
-                // Decode Base64 để lấy Bitmap
-                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-            }
-        } else {
-            bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu bitmapList trống
-        }
-
-        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
-        bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
-        //-----------------------------------------------------------------------------------------
-
-
+        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame, 800);
 
         //Xu ly anh phu
         @SuppressLint("UseCompatLoadingForDrawables")
@@ -1574,14 +2217,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         // Kiểm tra xem bitmapList có phần tử không trước khi lấy currentIndex
         if (bitmapListImageView2 != null && !bitmapListImageView2.isEmpty()) {
-            String encodedBitmap = bitmapListImageView2.get(currentIndexImageView2);
+            String entry = bitmapListImageView2.get(currentIndexImageView2);
 
-            if (encodedBitmap == null) {
+            if (entry == null) {
                 image = emptyImageview2Null; // Set bitmapFrameNull nếu null
             } else {
-                // Decode Base64 để lấy Bitmap
-                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                image = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+                image = UserAssetFileStore.decodeListEntryToBitmap(this, entry);
+                if (image == null) {
+                    image = emptyImageview2Null;
+                }
             }
         } else {
             image = emptyImageview2Null; // Set bitmapFrameNull nếu bitmapList trống
@@ -1617,8 +2261,29 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         Bitmap flippedBitmap = Bitmap.createBitmap(enlargedBitmap, 0, 0,
                 enlargedBitmap.getWidth(), enlargedBitmap.getHeight(), matrix, true);
 
-        Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
+        Bitmap colorForSave = imgSolve.processingImageColorForSave(
+                origin, dpi, 1.5f, lightValue1[0], contrast, 800);
+        Bitmap flippedColor;
+        if (colorForSave != null) {
+            Bitmap colorAligned = Bitmap.createScaledBitmap(colorForSave, newWidth, newHeight, true);
+            if (colorAligned != colorForSave) {
+                colorForSave.recycle();
+            }
+            Bitmap enlargedColor = Bitmap.createScaledBitmap(colorAligned, newWidth + compensation, newHeight + compensation, true);
+            if (enlargedColor != colorAligned) {
+                colorAligned.recycle();
+            }
+            flippedColor = Bitmap.createBitmap(enlargedColor, 0, 0,
+                    enlargedColor.getWidth(), enlargedColor.getHeight(), matrix, true);
+            enlargedColor.recycle();
+        } else {
+            flippedColor = flippedBitmap;
+        }
 
+        Bitmap frameBw = imgSolve.convertToGrayscale(bitmapFrame);
+        Bitmap newFrameBitmap = Bitmap.createScaledBitmap(frameBw, newWidth, newHeight, true);
+        Bitmap newFrameBitmapColor = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
+        frameBw.recycle();
 
         // compensation=70 android 14, compensation=0 android 11
 // Tạo Bitmap mới để kết hợp
@@ -1627,34 +2292,127 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 processedBitmap2.getHeight()+compensation,
                 Bitmap.Config.ARGB_8888
         );
+        Bitmap combinedBitmapColor = Bitmap.createBitmap(
+                processedBitmap2.getWidth() + compensation,
+                processedBitmap2.getHeight() + compensation,
+                Bitmap.Config.ARGB_8888
+        );
 
-
-// Vẽ bitmapFrame lên Canvas
         Canvas canvas = new Canvas(combinedBitmap);
         canvas.drawBitmap(flippedBitmap, 0, 0, null);
-
         canvas.drawBitmap(newFrameBitmap, 0, 0, null);
 
-// Tính toán xOffset và yOffset để căn giữa enlargedBitmap bên trong bitmapFrame
-
+        Canvas canvasColor = new Canvas(combinedBitmapColor);
+        canvasColor.drawBitmap(flippedColor, 0, 0, null);
+        canvasColor.drawBitmap(newFrameBitmapColor, 0, 0, null);
+        if (flippedColor != null && flippedColor != flippedBitmap) {
+            flippedColor.recycle();
+        }
+        newFrameBitmapColor.recycle();
         combinedBitmap.setDensity(bitmapFrame.getDensity());
+        combinedBitmapColor.setDensity(bitmapFrame.getDensity());
 
-        runOnUiThread(() -> {
-            try {
-                imageViewPreview.setImageBitmap(combinedBitmap);
-            } catch (Exception e) {
-                Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
-            }
-        });
+        showPostCapturePreview(combinedBitmapColor);
 
 
         btnPrint.setOnClickListener(v -> {
-            // Ẩn popup khi click vào chính popup
+            final boolean needWaitUpload = getSharedPreferences("settings", Context.MODE_PRIVATE)
+                    .getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
             try {
-                new Handler().postDelayed(() -> {
-                    textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
-                }, 1500);
-                //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
+                if (needWaitUpload) {
+                    blockLiveCaptureForDrive = true;
+                } else {
+                    new Handler().postDelayed(() -> setLiveViewCaptureInputEnabled(true), 1500);
+                }
+                if (PrinterTestMode.isEnabled(Activity_Camera2_Manual.this)) {
+                    String fn = PrinterTestMode.newTestFileNameJpeg();
+                    try {
+                        Bitmap fullPageT = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, 576);
+                        if (fullPageT == null) {
+                            fullPageT = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
+                        }
+                        MonoGallerySaver.saveBitmapToMonoFolder(Activity_Camera2_Manual.this, fullPageT, fn);
+                        File tmp = PrinterTestMode.writeJpegToCacheDir(Activity_Camera2_Manual.this, fullPageT, fn);
+                        if (fullPageT != null && fullPageT != combinedBitmap && fullPageT != combinedBitmapColor) {
+                            fullPageT.recycle();
+                        }
+                        if (combinedBitmapColor != null) {
+                            combinedBitmapColor.recycle();
+                        }
+                        SharedPreferences prefsT = getSharedPreferences("settings", MODE_PRIVATE);
+                        if (prefsT.getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            GoogleDriveService driveService = new GoogleDriveService(Activity_Camera2_Manual.this);
+                            driveService.createSubFolder().thenCompose(subFolderId -> {
+                                if (subFolderId != null) {
+                                    return driveService.uploadFileToDrive(tmp.getAbsolutePath(), subFolderId, fn);
+                                }
+                                return CompletableFuture.completedFuture(null);
+                            }).whenComplete((r, t) -> {
+                                if (t != null) {
+                                    Log.e(TAG, "Test mode Drive", t);
+                                }
+                                runOnUiThread(() -> {
+                                    imgSolve.clearCache();
+                                    releaseLiveCaptureAfterDrive();
+                                });
+                            });
+                        } else {
+                            imgSolve.clearCache();
+                            if (needWaitUpload) {
+                                runOnUiThread(this::releaseLiveCaptureAfterDrive);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Test mode save/Drive", e);
+                        runOnUiThread(() -> {
+                            imgSolve.clearCache();
+                            if (needWaitUpload) {
+                                releaseLiveCaptureAfterDrive();
+                            }
+                        });
+                    }
+                    scheduleMonoFolderThumbnailUpdate();
+                    counterTime++;
+                    SharedPreferences preferences2t = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
+                    preferences2t.edit().putInt("counterTime", counterTime).apply();
+                    runOnUiThread(() -> {
+                        try {
+                            numberCount.setText(String.valueOf(counterTime));
+                        } catch (Exception e) {
+                            Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+                        }
+                        applyHidePostCaptureOnUi();
+                    });
+                } else {
+                File combinedFileForDrive = null;
+                String combinedNameForDrive = null;
+                Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
+                try {
+                    if (fullPageForFile != null) {
+                        combinedNameForDrive = PrinterTestMode.newTestFileNameJpeg();
+                        combinedFileForDrive = PrinterTestMode.writeJpegToCacheDir(
+                                Activity_Camera2_Manual.this, fullPageForFile, combinedNameForDrive);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Ghi ảnh đã ghép (khung+phụ) cho Drive", e);
+                }
+                try {
+                    if (fullPageForFile != null) {
+                        MonoGallerySaver.savePrintedBitmapToGallery(Activity_Camera2_Manual.this, fullPageForFile);
+                    } else {
+                        MonoGallerySaver.savePrintedBitmapToGallery(Activity_Camera2_Manual.this,
+                                combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap);
+                    }
+                } catch (Exception e) {
+                    Log.d(TAG, "save gallery: " + e.getMessage());
+                }
+                if (fullPageForFile != null) {
+                    fullPageForFile.recycle();
+                }
+                if (combinedBitmapColor != null) {
+                    combinedBitmapColor.recycle();
+                }
+                scheduleMonoFolderThumbnailUpdate();
                 PrintNumber();
                 printImage(
                         combinedBitmap,
@@ -1667,55 +2425,58 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
                 printImage2(image, 0, 576, false, 1);
 
-
+                SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+                boolean Download= prefs.getBoolean("Download", false);
+                if(Download) {
                 GoogleDriveService driveService = new GoogleDriveService(this);
+                final File fCombinedDrive = combinedFileForDrive;
+                final String nameCombinedDrive = combinedNameForDrive;
 
-                // 1️⃣ Tạo thư mục con
+                // 1️⃣ Tạo thư mục con — upload file ảnh ghép (giống thư viện), không phải file chụp gốc
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     driveService.createSubFolder().thenCompose(subFolderId -> {
-                        if (subFolderId != null) {
-                            Log.d(TAG, "Thư mục con ID: " + subFolderId);
-
-                            // 2️⃣ Tạo QR code từ thư mục con
-                            Bitmap qrCodeFile = driveService.generateQRCode(subFolderId);
-                            if (qrCodeFile != null) {
-                                Log.d(TAG, "QR code đã tạo");
-
-                                printQR(qrCodeFile, 0, 150, true, 1);
-//                                Bitmap qrCodeFile2= imgSolve.generateQRCode("https://maps.app.goo.gl/BrvtyEMcy8gPFq939",500);
-//                                printQR(qrCodeFile2, 0, 140, false, 1);
-                                Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
-
-                                printEmptyAndCut(0, 140, false, 1,bitmapPrint);
-                                // 3️⃣ Upload ảnh vào thư mục con
-                                return driveService.uploadFileToDrive(path, subFolderId).thenApply(driveLink -> {
-                                    if (driveLink != null) {
-                                        Log.d(TAG, "Tải lên thành công: " + driveLink);
-                                    } else {
-                                        Log.e(TAG, "Upload thất bại.");
-                                    }
-                                    return driveLink;
-                                });
-                            } else {
-                                Log.e(TAG, "Không thể tạo QR code.");
-                            }
-                        }
-                        else {
+                        if (subFolderId == null) {
                             Log.e(TAG, "Không thể tạo thư mục con.");
-//                            Bitmap qrCodeFile= imgSolve.generateQRCode("https://www.tiktok.com/@mphotohcm",500);
-//                           printQR(qrCodeFile, 0, 140, false, 1);
                             Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
-                            printEmptyAndCut(0, 150, false, 1,bitmapPrint);
+                            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+                            return CompletableFuture.completedFuture(null);
                         }
-
-                        return CompletableFuture.completedFuture(null);
-                    }).thenRun(() -> {
-
-                        // 💡 Chỉ gọi clearCache khi tất cả quá trình trước đó hoàn thành
-                        Log.d(TAG, "Đã hoàn thành tất cả tác vụ, bắt đầu clear cache...");
-                        imgSolve.clearCache();
-
+                        Log.d(TAG, "Thư mục con ID: " + subFolderId);
+                        if (fCombinedDrive == null || nameCombinedDrive == null) {
+                            Log.e(TAG, "Không có file ảnh ghép để upload Drive.");
+                            Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
+                            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+                            return CompletableFuture.completedFuture(null);
+                        }
+                        return driveService.uploadFileToDrive(
+                                fCombinedDrive.getAbsolutePath(), subFolderId, nameCombinedDrive
+                        ).handle((driveLink, ex) -> {
+                            if (ex != null) {
+                                Log.e(TAG, "Lỗi upload Drive (ảnh in)", ex);
+                            } else if (driveLink != null) {
+                                Log.d(TAG, "Tải lên thành công: " + driveLink);
+                            } else {
+                                Log.e(TAG, "Upload thất bại (Drive) hoặc link rỗng.");
+                            }
+                            printMonoDriveQrForUploadedFileLink(driveLink);
+                            return null;
+                        });
+                    }).whenComplete((r, t) -> {
+                        if (t != null) {
+                            Log.e(TAG, "Drive upload pipeline (Manual)", t);
+                        }
+                        Log.d(TAG, "Kết thúc pipeline Drive — clear + mở chụp lại");
+                        runOnUiThread(() -> {
+                            imgSolve.clearCache();
+                            releaseLiveCaptureAfterDrive();
+                        });
                     });
+                }}
+                else {
+
+                    Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
+                    printEmptyAndCut(0, 150, false, 1,bitmapPrint);
+                    imgSolve.clearCache();
                 }
                 //                imgSolve.clearCache();
                 counterTime++;
@@ -1726,18 +2487,18 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 runOnUiThread(() -> {
                     try {
                         numberCount.setText(String.valueOf(counterTime));
-                        imageViewPreview.setImageResource(R.drawable.imagepreview);
                     } catch (Exception e) {
                         Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
                     }
+                    applyHidePostCaptureOnUi();
                 });
-
+                }
             } catch (Exception e) {
                 Log.e("PrintError", "Exception during printImage call", e);
+                if (needWaitUpload) {
+                    runOnUiThread(this::releaseLiveCaptureAfterDrive);
+                }
             }
-
-            btnPrint.setEnabled(false);
-            btnCancel.setEnabled(false);
 
             adjustedBitmap2[0]=null;
             bmp.set(null);
@@ -1745,31 +2506,22 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         });
 
         btnCancel.setOnClickListener(v -> {
-            // Ẩn popup khi click vào chính popup
             try {
-
-
-                new Handler().postDelayed(() -> {
-                    textureView.setEnabled(true); // Bật lại textureView sau 1.5 giây
-                }, 1500);
+                blockLiveCaptureForDrive = false;
+                new Handler().postDelayed(() -> setLiveViewCaptureInputEnabled(true), 1500);
                 imgSolve.clearCache();
                 runOnUiThread(() -> {
                     try {
-                        imageViewPreview.setImageResource(R.drawable.imagepreview);
+                        applyHidePostCaptureOnUi();
                     } catch (Exception e) {
-                        Log.e("FrameLayoutError", "Error setting visibility for FrameLayout", e);
+                        Log.e("FrameLayoutError", "cancel post capture", e);
                     }
                 });
-
             } catch (Exception e) {
                 Log.e("PrintError", "Exception during printImage call", e);
             }
-            btnPrint.setEnabled(false);
-            btnCancel.setEnabled(false);
-
             adjustedBitmap2[0]=null;
             bmp.set(null);
-
         });
 
     }
@@ -1802,21 +2554,63 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             bitmapPrint.recycle();
         });
     }
+    /**
+     * Phiếu in QR: mã hóa <b>link file ảnh vừa tải</b> (xem/ tải đúng tấm in), không mở cả thư mục Mono
+     * (tránh khách quét thấy ảnh user khác trong cùng folder).
+     */
+    private void printMonoDriveQrForUploadedFileLink(@Nullable String driveFileLink) {
+        if (driveFileLink == null || driveFileLink.isEmpty()) {
+            Log.e(TAG, "Không có link file Drive — in kết thúc, bỏ QR.");
+            Bitmap bitmapPrint = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+            return;
+        }
+        GoogleDriveService driveService = new GoogleDriveService(this);
+        Bitmap qr = driveService.generateQRCodeForUrl(driveFileLink);
+        if (qr != null) {
+            Log.d(TAG, "QR từ link file: " + driveFileLink);
+            printQR(qr, 0, 150, true, 1);
+            Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+            printEmptyAndCut(0, 140, false, 1, end);
+        } else {
+            Log.e(TAG, "Không tạo được QR từ link file");
+            Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+            printEmptyAndCut(0, 150, false, 1, end);
+        }
+    }
+
     public void printQR(final Bitmap bitmap, final int light, final int size,
                         final boolean haveWifi, final int sype) {
         executorService.execute(() -> {
             try {
                 Bitmap bitmapPrint = bitmap;
-
+                SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+                String lang = prefs.getString("language", "vi");
                 // Lấy ảnh từ drawable
                 Bitmap imageBitmap ;
                 // Xoay QR code nếu cần
-                if (haveWifi) {
-                    imageBitmap = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.getimage);
-                }
-                else {
-                    imageBitmap = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.follow);
-                }
+
+                    if (haveWifi) {
+
+                        if (lang.equals("vi")) {
+                            imageBitmap = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.getimage);
+                        }
+                        else if (lang.equals("en")) {
+                            imageBitmap = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.getimageeng);
+                        }
+                        else if (lang.equals("ko")) {
+                            imageBitmap = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.getimagekor);
+                        }
+                        else{
+                            imageBitmap = null;
+                        }
+                    }
+                    else{
+                        imageBitmap = null;
+                    }
+
+
+
 
                 // Điều chỉnh kích thước QR code nếu cần
                 if (size != 0) {
@@ -1946,7 +2740,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
         @Override
         public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
-
+            configureTransform(width, height);
         }
         private void configureTransform(int viewWidth, int viewHeight) {
             if (textureView == null || imageDimension == null) {
@@ -2232,12 +3026,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        MonoDriveServerSync.requestSyncIfLoggedIn(this);
         startBackgroundThread();
         if (textureView.isAvailable()) {
             openCamera();
         } else {
             textureView.setSurfaceTextureListener(textureListener);
         }
+        refreshMonoFolderThumbnail();
     }
     @Override
     protected void onPause() {
@@ -2274,6 +3070,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
     @Override
     protected void onDestroy() {
+        if (imageMonoLatestThumb != null) {
+            imageMonoLatestThumb.removeCallbacks(monoFolderThumbRefreshRetry);
+        }
         super.onDestroy();
         try {
             Print.PortClose();

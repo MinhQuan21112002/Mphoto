@@ -97,6 +97,36 @@ public class ImageSolve {
         return processedBitmap;
     }
 
+    /**
+     * Ảnh chụp cho bản lưu (màu): sharpen + sáng + tương phản + resize, không dùng {@link #processingImage}
+     * (OpenCV BGR2GRAY) để bản in vẫn dùng pipeline trắng-đen.
+     */
+    public Bitmap processingImageColorForSave(Bitmap origin, int dpi, float sharpness, int brightness, float contrast, int maxWidth) {
+        if (origin == null) {
+            return null;
+        }
+        Bitmap argb = origin.copy(Bitmap.Config.ARGB_8888, true);
+        argb.setDensity(dpi);
+        Bitmap sharpened = applySharpening(argb, sharpness);
+        if (sharpened != argb) {
+            argb.recycle();
+        }
+        Bitmap b1 = adjustBrightness(sharpened, brightness);
+        if (b1 != sharpened) {
+            sharpened.recycle();
+        }
+        Bitmap b2 = adjustContrast(b1, contrast);
+        if (b2 != b1) {
+            b1.recycle();
+        }
+        b2.setDensity(dpi);
+        Bitmap out = resizeBitmapMaintainAspect(b2, maxWidth);
+        if (out != b2) {
+            b2.recycle();
+        }
+        return out;
+    }
+
     public Bitmap drawableToBitmap(Drawable drawable) {
         // Kiểm tra nếu drawable là BitmapDrawable
         if (drawable instanceof BitmapDrawable) {

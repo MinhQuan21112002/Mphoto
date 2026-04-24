@@ -8,6 +8,8 @@ import android.graphics.Color;
 import android.os.Build;
 import android.util.Log;
 
+import androidx.annotation.Nullable;
+
 import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.FileContent;
@@ -19,6 +21,8 @@ import com.google.api.services.drive.model.Permission;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
+
+import com.google.api.services.drive.model.FileList;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -33,8 +37,10 @@ import java.util.concurrent.CompletableFuture;
 public class GoogleDriveService {
     private static final String TAG = "GoogleDriveService";
     private Drive driveService;
+    private Context context;
 
     public GoogleDriveService(Context context) {
+        this.context = context;
         try {
             InputStream inputStream = context.getResources().openRawResource(R.raw.setting);
             GoogleCredential credential = GoogleCredential.fromStream(inputStream)
@@ -52,41 +58,195 @@ public class GoogleDriveService {
         }
     }
 
-    @SuppressLint("SimpleDateFormat")
-    public CompletableFuture<String> createSubFolder() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    com.google.api.services.drive.model.File folderMetadata = new com.google.api.services.drive.model.File();
-                    folderMetadata.setName(new SimpleDateFormat("yyyyMMdd").format(new Date())); // Đặt tên theo ngày tháng
-                    folderMetadata.setMimeType("application/vnd.google-apps.folder");
-                    folderMetadata.setParents(Collections.singletonList("1AtOmGJTgFt4u1e5_wlbvgvSMv96oWQno"));
+    /**
+     * Thiết lập quyền xem công khai cho file/folder
+     */
+    private void setPublicPermission(String fileId) {
+        try {
+            Permission permission = new Permission();
+            permission.setType("anyone");
+            permission.setRole("reader"); // Chỉ cho phép xem, không chỉnh sửa
 
-                    com.google.api.services.drive.model.File folder = driveService.files()
-                            .create(folderMetadata)
-                            .setFields("id")
-                            .execute();
+            driveService.permissions()
+                    .create(fileId, permission)
+                    .setFields("id")
+                    .execute();
 
-                    return folder.getId(); // Trả về ID thư mục con
-                } catch (Exception e) {
-                    Log.e(TAG, "Lỗi tạo thư mục con: " + e.getMessage(), e);
-                    return null;
-                }
-            });
+            Log.d(TAG, "Đã thiết lập quyền xem công khai cho: " + fileId);
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi thiết lập quyền công khai: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Thiết lập quyền chỉnh sửa công khai cho folder (dùng cho folder cha)
+     */
+    private void setPublicEditorPermission(String folderId) {
+        try {
+            Permission permission = new Permission();
+            permission.setType("anyone");
+            permission.setRole("writer"); // Cho phép xem và chỉnh sửa
+
+            driveService.permissions()
+                    .create(folderId, permission)
+                    .setFields("id")
+                    .execute();
+
+            Log.d(TAG, "Đã thiết lập quyền chỉnh sửa công khai cho folder: " + folderId);
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi thiết lập quyền chỉnh sửa công khai: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Share folder với email cụ thể
+     */
+    private void shareFolderWithEmail(String folderId, String email) {
+        try {
+            Permission permission = new Permission();
+            permission.setType("user");
+            permission.setRole("writer"); // Cho phép xem và chỉnh sửa
+            permission.setEmailAddress(email);
+
+            driveService.permissions()
+                    .create(folderId, permission)
+                    .setFields("id")
+                    .execute();
+
+            Log.d(TAG, "Đã share folder với email: " + email);
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi share folder với email: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Tạo hoặc lấy ID của folder cha cho upload ảnh từ SharedPreferences
+     * Nếu không tồn tại, tự động tạo folder mới
+     */
+    private String getOrCreateUploadParentFolder(Context context) {
+        SharedPreferences sharedPreferences = context.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE);
+        String parentFolderId = sharedPreferences.getString("UploadParentFolderId", null);
+
+        // Kiểm tra xem folder cha có tồn tại không
+        if (parentFolderId != null && !parentFolderId.isEmpty()) {
+            if (isFolderExists(parentFolderId)) {
+                String folderLink = "https://drive.google.com/drive/folders/" + parentFolderId;
+                Log.d(TAG, "Folder cha Upload đã tồn tại: " + parentFolderId);
+                Log.d(TAG, "🔗 Link folder: " + folderLink);
+                Log.d(TAG, "📁 Tên folder: MPhoto_Upload_Folder");
+                return parentFolderId;
+            } else {
+                Log.w(TAG, "Folder cha Upload đã bị xóa, tạo folder mới...");
+            }
+        }
+
+        // Tạo folder cha mới nếu không tồn tại
+        try {
+            com.google.api.services.drive.model.File parentFolderMetadata = new com.google.api.services.drive.model.File();
+            parentFolderMetadata.setName("MPhoto_Upload_Folder");
+            parentFolderMetadata.setMimeType("application/vnd.google-apps.folder");
+
+            com.google.api.services.drive.model.File parentFolder = driveService.files()
+                    .create(parentFolderMetadata)
+                    .setFields("id")
+                    .execute();
+
+            if (parentFolder != null) {
+                String newParentFolderId = parentFolder.getId();
+                // Thiết lập quyền chỉnh sửa công khai cho folder cha
+                setPublicEditorPermission(newParentFolderId);
+                // Share folder với email chủ sở hữu
+                shareFolderWithEmail(newParentFolderId, "noelhomehcm@gmail.com");
+                sharedPreferences.edit().putString("UploadParentFolderId", newParentFolderId).apply();
+                MPhotoUserDataBackup.scheduleSave(context.getApplicationContext());
+                String folderLink = "https://drive.google.com/drive/folders/" + newParentFolderId;
+                Log.d(TAG, "Đã tạo folder cha Upload mới: " + newParentFolderId);
+                Log.d(TAG, "🔗 Link folder: " + folderLink);
+                Log.d(TAG, "📁 Tên folder: MPhoto_Upload_Folder");
+                return newParentFolderId;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi tạo folder cha Upload: " + e.getMessage(), e);
         }
         return null;
     }
 
+    @SuppressLint("SimpleDateFormat")
+    public CompletableFuture<String> createSubFolder() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return CompletableFuture.supplyAsync(() -> getOrCreateMonoUserUploadFolderId(context));
+        }
+        return null;
+    }
+
+    public boolean isDriveReady() {
+        return driveService != null;
+    }
+
+    /** Thư mục M-Photo Mono còn tồn tại trên Drive (dùng khi server trả về {@code folderId}). */
+    public boolean isDriveFolderStillThere(String folderId) {
+        if (folderId == null || folderId.isEmpty() || driveService == null) {
+            return false;
+        }
+        return isFolderExists(folderId);
+    }
+
+    /**
+     * Tạo hoặc lấy thư mục {@code M-Photo Mono_{userId}} dưới MPhoto_Upload (local SP; đồng bộ server xem
+     * {@link MonoDriveServerSync}).
+     */
+    public String getOrCreateMonoUserFolderId(Context ctx) {
+        return getOrCreateMonoUserUploadFolderId(ctx);
+    }
+
+    /**
+     * URL web mở thư mục trên trình duyệt: {@code https://drive.google.com/drive/folders/...}
+     */
+    public static String folderIdToWebLink(@Nullable String folderId) {
+        if (folderId == null || folderId.isEmpty()) {
+            return null;
+        }
+        return "https://drive.google.com/drive/folders/" + folderId;
+    }
+
+    /**
+     * Thư mục con chứa ảnh upload (M-Photo Mono_userId) — đã lưu ID sau lần in/tải/đồng bộ đầu.
+     */
+    @Nullable
+    public String getMonoUserFolderLink(Context ctx) {
+        String userId = TokenManager.getInstance(ctx).getUserId();
+        if (userId == null || userId.isEmpty()) {
+            userId = "unknown";
+        }
+        SharedPreferences sp = ctx.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE);
+        String id = sp.getString("MonoDriveUserFolderMphoto_" + userId, null);
+        return folderIdToWebLink(id);
+    }
+
+    /**
+     * Thư mục tổng trên Drive (MPhoto_Upload_Folder) — cấp cha của thư mục Mono.
+     */
+    @Nullable
+    public String getUploadRootFolderLink(Context ctx) {
+        String id = ctx.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE)
+            .getString("UploadParentFolderId", null);
+        return folderIdToWebLink(id);
+    }
 
 
-    public Bitmap generateQRCode(String folderId) {
+
+    /**
+     * QR từ URL đầy đủ (cùng nội dung quét trên thiết bị / web).
+     */
+    @Nullable
+    public Bitmap generateQRCodeForUrl(String fullUrl) {
+        if (fullUrl == null || fullUrl.trim().isEmpty()) {
+            return null;
+        }
         try {
-            // Tạo link Google Drive của thư mục cha
-            String driveFolderLink = "https://drive.google.com/drive/folders/" + folderId;
-
-            // Tạo QR code từ link này
+            String u = fullUrl.trim();
             QRCodeWriter qrCodeWriter = new QRCodeWriter();
-            BitMatrix bitMatrix = qrCodeWriter.encode(driveFolderLink, BarcodeFormat.QR_CODE, 500, 500);
+            BitMatrix bitMatrix = qrCodeWriter.encode(u, BarcodeFormat.QR_CODE, 500, 500);
 
             int width = bitMatrix.getWidth();
             int height = bitMatrix.getHeight();
@@ -106,10 +266,28 @@ public class GoogleDriveService {
         }
     }
 
+    public Bitmap generateQRCode(String folderId) {
+        if (folderId == null || folderId.isEmpty()) {
+            return null;
+        }
+        return generateQRCodeForUrl("https://drive.google.com/drive/folders/" + folderId);
+    }
+
 
 
     public CompletableFuture<String> uploadFileToDrive(String filePath, String folderId) {
+        return uploadFileToDrive(filePath, folderId, null);
+    }
+
+    /**
+     * @param displayName tên file trên Drive; null thì dùng tên file gốc trên ổ đĩa
+     */
+    public CompletableFuture<String> uploadFileToDrive(String filePath, String folderId, String displayName) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (driveService == null) {
+                Log.e(TAG, "uploadFileToDrive: Drive API chưa khởi tạo (kiểm tra res/raw/setting — service account JSON).");
+                return CompletableFuture.completedFuture(null);
+            }
             return CompletableFuture.supplyAsync(() -> {
                 try {
                     File file = new File(filePath); // Chuyển đường dẫn thành File
@@ -122,7 +300,7 @@ public class GoogleDriveService {
                     FileContent mediaContent = new FileContent("image/jpeg", file);
 
                     com.google.api.services.drive.model.File metadata = new com.google.api.services.drive.model.File();
-                    metadata.setName(file.getName());
+                    metadata.setName((displayName != null && !displayName.isEmpty()) ? displayName : file.getName());
                     metadata.setMimeType("image/jpeg");
                     metadata.setParents(Collections.singletonList(folderId)); // Đưa vào thư mục con
 
@@ -132,7 +310,10 @@ public class GoogleDriveService {
                             .execute();
 
                     if (uploadedFile != null) {
-                        return "https://drive.google.com/file/d/" + uploadedFile.getId() + "/view";
+                        String fileId = uploadedFile.getId();
+                        // Thiết lập quyền xem công khai cho file
+                        setPublicPermission(fileId);
+                        return "https://drive.google.com/file/d/" + fileId + "/view";
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Lỗi upload ảnh: " + e.getMessage(), e);
@@ -143,45 +324,135 @@ public class GoogleDriveService {
         return null;
     }
 
+    /**
+     * Tạo hoặc lấy ID của folder cha NameCard từ SharedPreferences
+     * Nếu không tồn tại, tự động tạo folder mới
+     */
+    private String getOrCreateParentFolder(Context context) {
+        SharedPreferences sharedPreferences = context.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE);
+        String parentFolderId = sharedPreferences.getString("NameCardParentFolderId", null);
+
+        // Kiểm tra xem folder cha có tồn tại không
+        if (parentFolderId != null && !parentFolderId.isEmpty()) {
+            if (isFolderExists(parentFolderId)) {
+                String folderLink = "https://drive.google.com/drive/folders/" + parentFolderId;
+                Log.d(TAG, "Folder cha NameCard đã tồn tại: " + parentFolderId);
+                Log.d(TAG, "🔗 Link folder: " + folderLink);
+                Log.d(TAG, "📁 Tên folder: NameCard_Folder");
+                return parentFolderId;
+            } else {
+                Log.w(TAG, "Folder cha đã bị xóa, tạo folder mới...");
+            }
+        }
+
+        // Tạo folder cha mới nếu không tồn tại
+        try {
+            com.google.api.services.drive.model.File parentFolderMetadata = new com.google.api.services.drive.model.File();
+            parentFolderMetadata.setName("NameCard_Folder");
+            parentFolderMetadata.setMimeType("application/vnd.google-apps.folder");
+
+            com.google.api.services.drive.model.File parentFolder = driveService.files()
+                    .create(parentFolderMetadata)
+                    .setFields("id")
+                    .execute();
+
+            if (parentFolder != null) {
+                String newParentFolderId = parentFolder.getId();
+                // Thiết lập quyền chỉnh sửa công khai cho folder cha
+                setPublicEditorPermission(newParentFolderId);
+                // Share folder với email chủ sở hữu
+                shareFolderWithEmail(newParentFolderId, "noelhomehcm@gmail.com");
+                sharedPreferences.edit().putString("NameCardParentFolderId", newParentFolderId).apply();
+                MPhotoUserDataBackup.scheduleSave(context.getApplicationContext());
+                String folderLink = "https://drive.google.com/drive/folders/" + newParentFolderId;
+                Log.d(TAG, "Đã tạo folder cha NameCard mới: " + newParentFolderId);
+                Log.d(TAG, "🔗 Link folder: " + folderLink);
+                Log.d(TAG, "📁 Tên folder: NameCard_Folder");
+                return newParentFolderId;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi tạo folder cha NameCard: " + e.getMessage(), e);
+        }
+        return null;
+    }
+
+    /**
+     * Cùng thư mục với chụp in M-Photo Mono: dưới {@code MPhoto_Upload_Folder} → {@code M-Photo Mono_{userId}}.
+     */
     public CompletableFuture<String> createOrGetSubFolder(Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return CompletableFuture.supplyAsync(() -> {
-                SharedPreferences sharedPreferences = context.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE);
-                String savedFolderId = sharedPreferences.getString("NameCardFolderId", null);
+            return CompletableFuture.supplyAsync(() -> getOrCreateMonoUserUploadFolderId(context));
+        }
+        return null;
+    }
 
-                if (savedFolderId != null && !savedFolderId.isEmpty()) {
-                    // Kiểm tra xem thư mục có tồn tại trên Google Drive không
-                    if (isFolderExists(savedFolderId)) {
-                        Log.d(TAG, "Thư mục đã tồn tại: " + savedFolderId);
-                        return savedFolderId; // Nếu tồn tại, trả về luôn
-                    } else {
-                        Log.w(TAG, "Thư mục đã bị xóa, tạo thư mục mới...");
-                    }
-                }
+    private String getOrCreateMonoUserUploadFolderId(Context ctx) {
+        String userId = TokenManager.getInstance(ctx).getUserId();
+        if (userId == null || userId.isEmpty()) {
+            userId = "unknown";
+        }
+        String safe = userId.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String displayName = "M-Photo Mono_" + safe;
+        SharedPreferences sp = ctx.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE);
+        String cacheKey = "MonoDriveUserFolderMphoto_" + userId;
+        String cached = sp.getString(cacheKey, null);
+        if (cached != null && !cached.isEmpty() && isFolderExists(cached)) {
+            Log.d(TAG, "Thư mục Mono user đã cache: " + displayName);
+            return cached;
+        }
+        String uploadRoot = getOrCreateUploadParentFolder(ctx);
+        if (uploadRoot == null) {
+            Log.e(TAG, "Không có folder cha MPhoto_Upload");
+            return null;
+        }
+        String existing = findChildFolderIdByName(uploadRoot, displayName);
+        if (existing != null) {
+            setPublicPermission(existing);
+            sp.edit().putString(cacheKey, existing).apply();
+            MPhotoUserDataBackup.scheduleSave(ctx.getApplicationContext());
+            Log.d(TAG, "Đã tìm thư mục Mono: " + displayName);
+            return existing;
+        }
+        try {
+            com.google.api.services.drive.model.File folderMetadata = new com.google.api.services.drive.model.File();
+            folderMetadata.setName(displayName);
+            folderMetadata.setMimeType("application/vnd.google-apps.folder");
+            folderMetadata.setParents(Collections.singletonList(uploadRoot));
+            com.google.api.services.drive.model.File created = driveService.files()
+                    .create(folderMetadata)
+                    .setFields("id")
+                    .execute();
+            if (created != null) {
+                String id = created.getId();
+                setPublicPermission(id);
+                sp.edit().putString(cacheKey, id).apply();
+                MPhotoUserDataBackup.scheduleSave(ctx.getApplicationContext());
+                Log.d(TAG, "Đã tạo thư mục Mono: " + displayName);
+                return id;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Lỗi tạo thư mục Mono: " + e.getMessage(), e);
+        }
+        return null;
+    }
 
-                try {
-                    String folderName = "NameCard_" + new SimpleDateFormat("yyyyMMdd").format(new Date());
-                    com.google.api.services.drive.model.File folderMetadata = new com.google.api.services.drive.model.File();
-                    folderMetadata.setName(folderName);
-                    folderMetadata.setMimeType("application/vnd.google-apps.folder");
-                    folderMetadata.setParents(Collections.singletonList("1wo6sRrMqJoA9g7o7yiJHcQgM3FrIyN7R")); // ID thư mục cha
-
-                    com.google.api.services.drive.model.File folder = driveService.files()
-                            .create(folderMetadata)
-                            .setFields("id")
-                            .execute();
-
-                    if (folder != null) {
-                        String folderId = folder.getId();
-                        sharedPreferences.edit().putString("NameCardFolderId", folderId).apply(); // Lưu vào SharedPreferences
-                        Log.d(TAG, "Tạo thư mục mới: " + folderId);
-                        return folderId;
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Lỗi tạo thư mục NameCard: " + e.getMessage(), e);
-                }
-                return null;
-            });
+    private String findChildFolderIdByName(String parentId, String name) {
+        try {
+            String q = "mimeType = 'application/vnd.google-apps.folder' and '"
+                + parentId
+                + "' in parents and trashed = false and name = '"
+                + name.replace("'", "\\'")
+                + "'";
+            FileList r = driveService.files().list()
+                    .setQ(q)
+                    .setFields("files(id, name)")
+                    .setPageSize(5)
+                    .execute();
+            if (r.getFiles() != null && !r.getFiles().isEmpty()) {
+                return r.getFiles().get(0).getId();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "findChildFolder: " + e.getMessage(), e);
         }
         return null;
     }

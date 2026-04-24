@@ -3,8 +3,6 @@ package com.sdk.esc;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.util.Base64;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -22,6 +20,7 @@ import java.util.List;
 
 public class ImageViewListAdapter extends RecyclerView.Adapter<ImageViewListAdapter.ImageViewHolder> {
     private List<String> imageList;
+    private int visibleCount;
     private final Context context;
     private final OnImageDeleteListener onImageDeleteListener;
     private final OnImageClickListener onImageClickListener;
@@ -31,8 +30,28 @@ public class ImageViewListAdapter extends RecyclerView.Adapter<ImageViewListAdap
                                 OnImageClickListener onImageClickListener) {
         this.context = context;
         this.imageList = imageList;
+        this.visibleCount = imageList != null ? imageList.size() : 0;
         this.onImageDeleteListener = onImageDeleteListener;
         this.onImageClickListener = onImageClickListener;
+    }
+
+    public void setVisibleCount(int count) {
+        if (imageList == null) {
+            visibleCount = 0;
+        } else {
+            visibleCount = Math.max(0, Math.min(count, imageList.size()));
+        }
+        notifyDataSetChanged();
+    }
+
+    public boolean increaseVisibleCount(int delta) {
+        int old = visibleCount;
+        setVisibleCount(old + Math.max(0, delta));
+        return visibleCount > old;
+    }
+
+    public boolean canLoadMore() {
+        return imageList != null && visibleCount < imageList.size();
     }
 
     public interface OnImageDeleteListener {
@@ -52,44 +71,43 @@ public class ImageViewListAdapter extends RecyclerView.Adapter<ImageViewListAdap
 
     @Override
     public void onBindViewHolder(@NonNull ImageViewHolder holder, int position) {
-        String encodedBitmap = imageList.get(position);
-        byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-        Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-        holder.imageView.setImageBitmap(bitmap);
+        String entry = imageList.get(position);
+        Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(context, entry);
+        if (bitmap != null) {
+            holder.imageView.setImageBitmap(bitmap);
+        }
 
         // Xử lý sự kiện click
         holder.imageView.setOnClickListener(v -> {
             if (onImageClickListener != null) {
-                onImageClickListener.onImageClicked(position);
+                onImageClickListener.onImageClicked(holder.getAdapterPosition());
             }
         });
 
         // Xóa ảnh
         holder.buttonDelete.setOnClickListener(v -> {
-            Toast.makeText(context, "vị trí chọn xóa : " +position, Toast.LENGTH_SHORT).show();
+            int pos = holder.getAdapterPosition();
+            if (pos == RecyclerView.NO_POSITION) {
+                return;
+            }
+            Toast.makeText(context, "vị trí chọn xóa : " + pos, Toast.LENGTH_SHORT).show();
 
-            int newPosition=position;
-            if(imageList.size()==1)
-            {
-                newPosition=0;
-            }
-            if(position==imageList.size())
-            {
-                newPosition=position-1;
-            }
-            if (newPosition < imageList.size() && newPosition >= 0) {
-                // Xóa hình ảnh khỏi danh sách
-                imageList.remove(newPosition);
+            if (pos < imageList.size() && pos >= 0) {
+                UserAssetFileStore.deleteFileForListEntry(context, imageList.get(pos));
+                imageList.remove(pos);
+                if (visibleCount > imageList.size()) {
+                    visibleCount = imageList.size();
+                }
 
                 // Lưu danh sách cập nhật vào SharedPreferences
                 saveImageListToPreferences();
 
                 // Cập nhật RecyclerView
-                notifyItemRemoved(position);
+                notifyItemRemoved(pos);
 
                 // Gọi callback nếu cần
                 if (onImageDeleteListener != null) {
-                    onImageDeleteListener.onImageDeleted(position);
+                    onImageDeleteListener.onImageDeleted(pos);
                 }
             }
         });
@@ -97,7 +115,7 @@ public class ImageViewListAdapter extends RecyclerView.Adapter<ImageViewListAdap
 
     @Override
     public int getItemCount() {
-        return imageList.size();
+        return imageList == null ? 0 : Math.min(visibleCount, imageList.size());
     }
 
     private void saveImageListToPreferences() {
@@ -107,6 +125,7 @@ public class ImageViewListAdapter extends RecyclerView.Adapter<ImageViewListAdap
         String json = gson.toJson(imageList);
         editor.putString("ImageViewList", json);
         editor.apply();
+        MPhotoUserDataBackup.scheduleSave(context.getApplicationContext());
     }
 
     public static class ImageViewHolder extends RecyclerView.ViewHolder {

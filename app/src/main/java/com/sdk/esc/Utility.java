@@ -2,9 +2,10 @@ package com.sdk.esc;
 
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Matrix;
-import android.graphics.Rect;
 import android.graphics.Paint;
+import android.graphics.Rect;
 
 /**
  * Created by NO on 2017/9/14.
@@ -38,6 +39,37 @@ public class Utility {
     public static int getHeight(int width, int pageWidthPoint, int pageHeightPoint) {
         double bili = width / (double) pageWidthPoint;
         return (int) (pageHeightPoint * bili);
+    }
+
+    /**
+     * Ghép theo thứ tự in: ảnh chính (đã + khung) ở trên, ảnh phụ ở dưới, cùng chiều rộng
+     * với cách scale khi in ({@code printWidth} pt, thường 576). Bitmap trả về cần {@link Bitmap#recycle()}.
+     */
+    public static Bitmap buildVerticalStackForPrintWidth(Bitmap main, Bitmap second, int printWidth) {
+        if (main == null || main.isRecycled()) {
+            return null;
+        }
+        int h1 = getHeight(printWidth, main.getWidth(), main.getHeight());
+        Bitmap s1 = Tobitmap(main, printWidth, h1);
+        Bitmap s2 = null;
+        if (second != null && !second.isRecycled()) {
+            int h2 = getHeight(printWidth, second.getWidth(), second.getHeight());
+            s2 = Tobitmap(second, printWidth, h2);
+        }
+        int totalH = s1.getHeight() + (s2 != null ? s2.getHeight() : 0);
+        Bitmap out = Bitmap.createBitmap(printWidth, totalH, Bitmap.Config.ARGB_8888);
+        out.setDensity(main.getDensity());
+        Canvas c = new Canvas(out);
+        c.drawColor(Color.WHITE);
+        c.drawBitmap(s1, 0, 0, null);
+        if (s2 != null) {
+            c.drawBitmap(s2, 0, s1.getHeight(), null);
+        }
+        s1.recycle();
+        if (s2 != null) {
+            s2.recycle();
+        }
+        return out;
     }
 
     public static Bitmap Tobitmap90(Bitmap bitmap) {

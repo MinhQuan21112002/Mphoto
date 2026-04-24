@@ -40,7 +40,6 @@ import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.util.Base64;
 import android.util.Log;
 import android.util.SparseIntArray;
 import android.view.GestureDetector;
@@ -52,7 +51,9 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -104,6 +105,8 @@ public class Activity_Camera2 extends AppCompatActivity {
     private final int PRINT_FAILURE = 0;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_STORAGE_PERMISSION = 201;
+    /** Tải ảnh in lên Drive (bật Download) bất đồng bộ — chặn chụp tiếp cho tới khi xong. */
+    private volatile boolean blockCaptureForDriveUpload;
     private UsbDevice device = null;
     private PendingIntent mPermissionIntent = null;
     private static final String ACTION_USB_PERMISSION = "com.PRINTSDKSample";
@@ -154,6 +157,13 @@ public class Activity_Camera2 extends AppCompatActivity {
         changeLanguageFirst(lang); // ✅ Gọi trước super.onCreate()
         super.onCreate(savedInstanceState);
 
+        TokenManager tokenManager = TokenManager.getInstance(this);
+        if (!tokenManager.isLoggedIn()) {
+            startActivity(new Intent(this, LoginActivity.class));
+            finish();
+            return;
+        }
+
         if (OpenCVLoader.initDebug()) {
             Log.d("OpenCV", "OpenCV successfully loaded!");
         } else {
@@ -188,11 +198,10 @@ public class Activity_Camera2 extends AppCompatActivity {
         //--------------------------------------------------------------------------------------------------------------
         counterTime=sharedPreferences.getInt("counterTime", 1);
         if (!bitmapListImageView2.isEmpty()) {
-            String encodedBitmap = bitmapListImageView2.get(currentIndexImageView2);
-            byte[] bitmapBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-            image= BitmapFactory.decodeByteArray(bitmapBytes, 0, bitmapBytes.length);
+            image = UserAssetFileStore.decodeListEntryToBitmap(this,
+                bitmapListImageView2.get(currentIndexImageView2));
         }
-        else {
+        if (image == null) {
             image = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
         }
 
@@ -234,7 +243,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         clickButton.setOnClickListener(v -> {
 
-            if (!Print.IsOpened()) {
+            if (!Print.IsOpened() && !PrinterTestMode.isEnabled(this)) {
                 Toast.makeText(Activity_Camera2.this, getString(R.string.please_connect_printer), Toast.LENGTH_SHORT).show();
                 try {
                     if(havingUsb)
@@ -246,7 +255,11 @@ public class Activity_Camera2 extends AppCompatActivity {
                 }
 
             }
-            else{
+            else {
+                if (blockCaptureForDriveUpload) {
+                    Toast.makeText(Activity_Camera2.this, R.string.drive_upload_wait_capture, Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 startCountdown();
                 textureView.setEnabled(false);
                 clickButton.setEnabled(false);
@@ -349,9 +362,10 @@ public class Activity_Camera2 extends AppCompatActivity {
     }
     private void updateImageView(int index) {
         if (bitmapList != null && index < bitmapList.size()) {
-            String encodedBitmap = bitmapList.get(index);
-            byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+            Bitmap bitmap = UserAssetFileStore.decodeListEntryToBitmap(this, bitmapList.get(index));
+            if (bitmap == null) {
+                return;
+            }
 
             // Tính toán kích thước mới theo tỷ lệ 16:10
             int originalWidth = bitmap.getWidth();
@@ -366,6 +380,10 @@ public class Activity_Camera2 extends AppCompatActivity {
     }
 
     private void startCountdown() {
+        if (blockCaptureForDriveUpload) {
+            Toast.makeText(this, R.string.drive_upload_wait_capture, Toast.LENGTH_SHORT).show();
+            return;
+        }
         // Hiển thị TextView countdown
         countdown.setVisibility(View.VISIBLE);
         countdownSound = MediaPlayer.create(this, R.raw.countdown); // Sử dụng tệp âm thanh cho 3 giây
@@ -523,20 +541,20 @@ public class Activity_Camera2 extends AppCompatActivity {
         Bitmap bitmapFrame;
 // Kiểm tra xem bitmapList có phần tử không trước khi lấy currentIndex
         if (bitmapList != null && !bitmapList.isEmpty()) {
-            String encodedBitmap = bitmapList.get(currentIndex);
-
-            if (encodedBitmap == null) {
+            String entry = bitmapList.get(currentIndex);
+            if (entry == null) {
                 bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu null
             } else {
-                // Decode Base64 để lấy Bitmap
-                byte[] decodedBytes = Base64.decode(encodedBitmap, Base64.DEFAULT);
-                bitmapFrame = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
+                bitmapFrame = UserAssetFileStore.decodeListEntryToBitmap(this, entry);
+                if (bitmapFrame == null) {
+                    bitmapFrame = bitmapFrameNull;
+                }
             }
         } else {
             bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu bitmapList trống
         }
-        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame,800); // Nếu cần chuyển thành grayscale
-        bitmapFrame=imgSolve.convertToGrayscale(bitmapFrame);
+        // Khung giữ màu (lưu file); bản trắng-đen chỉ dùng khi in
+        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame, 800);
 // Bitmap đã xử lý (adjustedBitmap2[0])
         Bitmap processedBitmap2 = adjustedBitmap2[0];
         processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
@@ -559,8 +577,30 @@ public class Activity_Camera2 extends AppCompatActivity {
         Bitmap flippedBitmap = Bitmap.createBitmap(enlargedBitmap, 0, 0,
                 enlargedBitmap.getWidth(), enlargedBitmap.getHeight(), matrix, true);
 
-        Bitmap newFrameBitmap = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
+        // Ảnh chính màu cho lưu: không qua processingImage (OpenCV xám) — cùng sharpen/sáng/tương phản
+        Bitmap colorForSave = imgSolve.processingImageColorForSave(
+                origin, dpi, 2.0f, lightValue1[0], contrast, 800);
+        Bitmap flippedColor;
+        if (colorForSave != null) {
+            Bitmap colorAligned = Bitmap.createScaledBitmap(colorForSave, newWidth, newHeight, true);
+            if (colorAligned != colorForSave) {
+                colorForSave.recycle();
+            }
+            Bitmap enlargedColor = Bitmap.createScaledBitmap(colorAligned, newWidth + compensation, newHeight + compensation, true);
+            if (enlargedColor != colorAligned) {
+                colorAligned.recycle();
+            }
+            flippedColor = Bitmap.createBitmap(enlargedColor, 0, 0,
+                    enlargedColor.getWidth(), enlargedColor.getHeight(), matrix, true);
+            enlargedColor.recycle();
+        } else {
+            flippedColor = flippedBitmap;
+        }
 
+        Bitmap frameBw = imgSolve.convertToGrayscale(bitmapFrame);
+        Bitmap newFrameBitmap = Bitmap.createScaledBitmap(frameBw, newWidth, newHeight, true);
+        Bitmap newFrameBitmapColor = Bitmap.createScaledBitmap(bitmapFrame, newWidth, newHeight, true);
+        frameBw.recycle();
 
         // compensation=70 android 14, compensation=0 android 11
 // Tạo Bitmap mới để kết hợp
@@ -570,6 +610,11 @@ public class Activity_Camera2 extends AppCompatActivity {
                 Bitmap.Config.ARGB_8888
         );
 
+        Bitmap combinedBitmapColor = Bitmap.createBitmap(
+                processedBitmap2.getWidth() + compensation,
+                processedBitmap2.getHeight() + compensation,
+                Bitmap.Config.ARGB_8888
+        );
 
 // Vẽ bitmapFrame lên Canvas
         Canvas canvas = new Canvas(combinedBitmap);
@@ -577,13 +622,106 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         canvas.drawBitmap(newFrameBitmap, 0, 0, null);
 
-        runOnUiThread(() ->{ textureView.setEnabled(true );
-            clickButton.setEnabled(true);
-            clickButton.setVisibility(View.VISIBLE);});
+        Canvas canvasColor = new Canvas(combinedBitmapColor);
+        canvasColor.drawBitmap(flippedColor, 0, 0, null);
+        canvasColor.drawBitmap(newFrameBitmapColor, 0, 0, null);
+        if (flippedColor != null && flippedColor != flippedBitmap) {
+            flippedColor.recycle();
+        }
+        newFrameBitmapColor.recycle();
+        combinedBitmapColor.setDensity(bitmapFrame.getDensity());
+
+        runOnUiThread(() -> {
+            if (needWaitForDriveUploadPipeline()) {
+                blockCaptureForDriveUpload = true;
+            } else {
+                if (textureView != null) {
+                    textureView.setEnabled(true);
+                }
+                if (clickButton != null) {
+                    clickButton.setEnabled(true);
+                    clickButton.setVisibility(View.VISIBLE);
+                }
+            }
+        });
+        if (PrinterTestMode.isEnabled(this)) {
+            try {
+                String fn = PrinterTestMode.newTestFileNameJpeg();
+                Bitmap fullPage = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, 576);
+                if (fullPage == null) {
+                    fullPage = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
+                }
+                MonoGallerySaver.saveBitmapToMonoFolder(this, fullPage, fn);
+                File tmp = PrinterTestMode.writeJpegToCacheDir(this, fullPage, fn);
+                if (fullPage != null && fullPage != combinedBitmap && fullPage != combinedBitmapColor) {
+                    fullPage.recycle();
+                }
+                if (combinedBitmapColor != null) {
+                    combinedBitmapColor.recycle();
+                }
+                SharedPreferences prefsTest = getSharedPreferences("settings", MODE_PRIVATE);
+                if (prefsTest.getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    GoogleDriveService driveService = new GoogleDriveService(this);
+                    driveService.createSubFolder().thenCompose(subFolderId -> {
+                        if (subFolderId != null) {
+                            return driveService.uploadFileToDrive(tmp.getAbsolutePath(), subFolderId, fn);
+                        }
+                        return CompletableFuture.completedFuture(null);
+                    }).whenComplete((r, t) -> {
+                        if (t != null) {
+                            Log.e(TAG, "Test mode Drive", t);
+                        }
+                        runOnUiThread(() -> {
+                            imgSolve.clearCache();
+                            releaseCaptureAfterDriveUpload();
+                        });
+                    });
+                } else {
+                    imgSolve.clearCache();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Test mode: save/Drive", e);
+                runOnUiThread(() -> {
+                    imgSolve.clearCache();
+                    releaseCaptureAfterDriveUpload();
+                });
+            }
+            counterTime++;
+            SharedPreferences preferences2t = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
+            preferences2t.edit().putInt("counterTime", counterTime).apply();
+            return;
+        }
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
-        PrintNumber();
         int PRINT_THREE_INCH = 576;
         int BITMAP_SHAKE = 1;
+        Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
+        try {
+            if (fullPageForFile != null) {
+                MonoGallerySaver.savePrintedBitmapToGallery(this, fullPageForFile);
+            } else {
+                MonoGallerySaver.savePrintedBitmapToGallery(this, combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap);
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "save gallery: " + e.getMessage());
+        }
+        File combinedFileForDrive = null;
+        String combinedNameForDrive = null;
+        try {
+            if (fullPageForFile != null) {
+                combinedNameForDrive = PrinterTestMode.newTestFileNameJpeg();
+                combinedFileForDrive = PrinterTestMode.writeJpegToCacheDir(
+                        Activity_Camera2.this, fullPageForFile, combinedNameForDrive);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Ghi ảnh đã ghép (khung+phụ) cho Drive", e);
+        }
+        if (fullPageForFile != null) {
+            fullPageForFile.recycle();
+        }
+        if (combinedBitmapColor != null) {
+            combinedBitmapColor.recycle();
+        }
+        PrintNumber();
         printImage(
                 combinedBitmap,
                 0,
@@ -593,54 +731,59 @@ public class Activity_Camera2 extends AppCompatActivity {
         );
 
         printImage2(image, 0, 576, false, 1);
-        GoogleDriveService driveService = new GoogleDriveService(this);
+        SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        boolean Download= prefs.getBoolean("Download", false);
+        if(Download) {
+            GoogleDriveService driveService = new GoogleDriveService(this);
+            final File fCombinedDrive = combinedFileForDrive;
+            final String nameCombinedDrive = combinedNameForDrive;
 
-// 1️⃣ Tạo thư mục con
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            driveService.createSubFolder().thenCompose(subFolderId -> {
-                if (subFolderId != null) {
-                    Log.d(TAG, "Thư mục con ID: " + subFolderId);
-
-                    // 2️⃣ Tạo QR code từ thư mục con
-                    Bitmap qrCodeFile = driveService.generateQRCode(subFolderId);
-                    if (qrCodeFile != null) {
-                        Log.d(TAG, "QR code đã tạo");
-                        printQR(qrCodeFile, 0, 140, true, 1);
-
-//                        Bitmap qrCodeFile2= imgSolve.generateQRCode("https://maps.app.goo.gl/BrvtyEMcy8gPFq939",500);
-//                        printQR(qrCodeFile2, 0, 140, false, 1);
+// 1️⃣ Tạo thư mục con — upload file ảnh ghép, không phải file chụp gốc
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                driveService.createSubFolder().thenCompose(subFolderId -> {
+                    if (subFolderId == null) {
+                        Log.e(TAG, "Không thể tạo thư mục con.");
                         Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
-
-                        printEmptyAndCut(0, 150, false, 1,bitmapPrint);
-
-                        // 3️⃣ Upload ảnh vào thư mục con
-                        return driveService.uploadFileToDrive(path, subFolderId).thenApply(driveLink -> {
-                            if (driveLink != null) {
-                                Log.d(TAG, "Tải lên thành công: " + driveLink);
-                            } else {
-                                Log.e(TAG, "Upload thất bại.");
-                            }
-                            return driveLink;
-                        });
-                    } else {
-                        Log.e(TAG, "Không thể tạo QR code.");
+                        printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+                        return CompletableFuture.completedFuture(null);
                     }
-                }
-                else {
-                    Log.e(TAG, "Không thể tạo thư mục con.");
-//                    Bitmap qrCodeFile= imgSolve.generateQRCode("https://www.tiktok.com/@mphotohcm",150);
-//                    printQR(qrCodeFile, 0, 140, false, 1);
-                    Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
+                    Log.d(TAG, "Thư mục con ID: " + subFolderId);
+                    if (fCombinedDrive == null || nameCombinedDrive == null) {
+                        Log.e(TAG, "Không có file ảnh ghép để upload Drive.");
+                        Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
+                        printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    return driveService.uploadFileToDrive(
+                            fCombinedDrive.getAbsolutePath(), subFolderId, nameCombinedDrive
+                    ).handle((driveLink, ex) -> {
+                        if (ex != null) {
+                            Log.e(TAG, "Lỗi upload Drive (ảnh in)", ex);
+                        } else if (driveLink != null) {
+                            Log.d(TAG, "Tải lên thành công: " + driveLink);
+                        } else {
+                            Log.e(TAG, "Upload thất bại (Drive) hoặc link rỗng.");
+                        }
+                        printMonoDriveQrForUploadedFileLink(driveLink);
+                        return null;
+                    });
+                }).whenComplete((r, t) -> {
+                    if (t != null) {
+                        Log.e(TAG, "Drive upload pipeline (ảnh in)", t);
+                    }
+                    Log.d(TAG, "Kết thúc pipeline Drive (kể cả lỗi) — clear + mở chụp lại");
+                    runOnUiThread(() -> {
+                        imgSolve.clearCache();
+                        releaseCaptureAfterDriveUpload();
+                    });
+                });
+            }
+        } else {
 
-                    printEmptyAndCut(0, 150, false, 1,bitmapPrint);
-                }
-
-                return CompletableFuture.completedFuture(null);
-            }).thenRun(() -> {
-                // 💡 Chỉ gọi clearCache khi tất cả quá trình trước đó hoàn thành
-                Log.d(TAG, "Đã hoàn thành tất cả tác vụ, bắt đầu clear cache...");
-                imgSolve.clearCache();
-            });
+            Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
+            printEmptyAndCut(0, 150, false, 1,bitmapPrint);
+            imgSolve.clearCache();
+            releaseCaptureAfterDriveUpload();
         }
 //        imgSolve.clearCache();
         counterTime++;
@@ -651,6 +794,49 @@ public class Activity_Camera2 extends AppCompatActivity {
 
 
     }
+
+    private boolean needWaitForDriveUploadPipeline() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return false;
+        }
+        return getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("Download", false);
+    }
+
+    private void releaseCaptureAfterDriveUpload() {
+        blockCaptureForDriveUpload = false;
+        runOnUiThread(() -> {
+            if (textureView != null) {
+                textureView.setEnabled(true);
+            }
+            if (clickButton != null) {
+                clickButton.setEnabled(true);
+                clickButton.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    private void printMonoDriveQrForUploadedFileLink(@Nullable String driveFileLink) {
+        if (driveFileLink == null || driveFileLink.isEmpty()) {
+            Log.e(TAG, "Không có link file Drive — in kết thúc, bỏ QR.");
+            Bitmap bitmapPrint = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+            return;
+        }
+        GoogleDriveService driveService = new GoogleDriveService(this);
+        Bitmap qr = driveService.generateQRCodeForUrl(driveFileLink);
+        if (qr != null) {
+            Log.d(TAG, "QR từ link file: " + driveFileLink);
+            printQR(qr, 0, 140, true, 1);
+            imgSolve.generateQRCode("https://maps.app.goo.gl/BrvtyEMcy8gPFq939", 500);
+            Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+            printEmptyAndCut(0, 150, false, 1, end);
+        } else {
+            Log.e(TAG, "Không tạo được QR từ link file");
+            Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+            printEmptyAndCut(0, 150, false, 1, end);
+        }
+    }
+
     public void printQR(final Bitmap bitmap, final int light, final int size,
                         final boolean haveWifi, final int sype) {
         executorService.execute(() -> {
@@ -658,13 +844,31 @@ public class Activity_Camera2 extends AppCompatActivity {
                 Bitmap bitmapPrint = bitmap;
 
                 // Lấy ảnh từ drawable
-                Bitmap imageBitmap ;
+                Bitmap imageBitmap =null;
                 // Xoay QR code nếu cần
                 if (haveWifi) {
-                    imageBitmap = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.getimage);
+                    SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+                    Boolean Download= prefs.getBoolean("Download", false);
+                    String lang = prefs.getString("language", "vi");
+                    if(Download)
+                    {
+                        if(lang.equals("vi"))
+                        {
+                            imageBitmap = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.getimage);
+                        }
+                        if(lang.equals("en"))
+                        {
+                            imageBitmap = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.getimageeng);
+                        }
+                        if(lang.equals("ko"))
+                        {
+                            imageBitmap = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.getimagekor);
+                        }
+                    }
+
                 }
                 else {
-                    imageBitmap = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.follow);
+                    imageBitmap =null;
                 }
 
                 // Điều chỉnh kích thước QR code nếu cần
@@ -1147,6 +1351,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        MonoDriveServerSync.requestSyncIfLoggedIn(this);
         startBackgroundThread();
         if (textureView.isAvailable()) {
             openCamera();
