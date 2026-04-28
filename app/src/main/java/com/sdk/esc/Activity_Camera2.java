@@ -68,6 +68,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -82,6 +83,7 @@ import com.google.gson.reflect.TypeToken;
 import org.opencv.android.OpenCVLoader;
 
 public class Activity_Camera2 extends AppCompatActivity {
+    private static final String MONO_FOLDER_ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
 
     File file;
     ImageSolve imgSolve;
@@ -661,20 +663,12 @@ public class Activity_Camera2 extends AppCompatActivity {
                 }
                 SharedPreferences prefsTest = getSharedPreferences("settings", MODE_PRIVATE);
                 if (prefsTest.getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    GoogleDriveService driveService = new GoogleDriveService(this);
-                    driveService.createSubFolder().thenCompose(subFolderId -> {
-                        if (subFolderId != null) {
-                            return driveService.uploadFileToDrive(tmp.getAbsolutePath(), subFolderId, fn);
-                        }
-                        return CompletableFuture.completedFuture(null);
-                    }).whenComplete((r, t) -> {
-                        if (t != null) {
-                            Log.e(TAG, "Test mode Drive", t);
-                        }
-                        runOnUiThread(() -> {
-                            imgSolve.clearCache();
-                            releaseCaptureAfterDriveUpload();
-                        });
+                    final String monoFolderName = generateMonoServerFolderId();
+                    printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderName));
+                    uploadMonoPhotoToServerInBackground(tmp, monoFolderName);
+                    runOnUiThread(() -> {
+                        imgSolve.clearCache();
+                        releaseCaptureAfterDriveUpload();
                     });
                 } else {
                     imgSolve.clearCache();
@@ -694,12 +688,17 @@ public class Activity_Camera2 extends AppCompatActivity {
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
         int PRINT_THREE_INCH = 576;
         int BITMAP_SHAKE = 1;
+        final String monoFolderName = generateMonoServerFolderId();
+        final String monoLocalPhotoName = monoFolderName + "_1.jpg";
         Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
         try {
             if (fullPageForFile != null) {
-                MonoGallerySaver.savePrintedBitmapToGallery(this, fullPageForFile);
+                MonoGallerySaver.saveBitmapToMonoFolder(this, fullPageForFile, monoLocalPhotoName);
             } else {
-                MonoGallerySaver.savePrintedBitmapToGallery(this, combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap);
+                Bitmap src = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
+                if (src != null) {
+                    MonoGallerySaver.saveBitmapToMonoFolder(this, src, monoLocalPhotoName);
+                }
             }
         } catch (Exception e) {
             Log.d(TAG, "save gallery: " + e.getMessage());
@@ -708,7 +707,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         String combinedNameForDrive = null;
         try {
             if (fullPageForFile != null) {
-                combinedNameForDrive = PrinterTestMode.newTestFileNameJpeg();
+                combinedNameForDrive = monoLocalPhotoName;
                 combinedFileForDrive = PrinterTestMode.writeJpegToCacheDir(
                         Activity_Camera2.this, fullPageForFile, combinedNameForDrive);
             }
@@ -734,50 +733,15 @@ public class Activity_Camera2 extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
         boolean Download= prefs.getBoolean("Download", false);
         if(Download) {
-            GoogleDriveService driveService = new GoogleDriveService(this);
             final File fCombinedDrive = combinedFileForDrive;
-            final String nameCombinedDrive = combinedNameForDrive;
-
-// 1️⃣ Tạo thư mục con — upload file ảnh ghép, không phải file chụp gốc
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                driveService.createSubFolder().thenCompose(subFolderId -> {
-                    if (subFolderId == null) {
-                        Log.e(TAG, "Không thể tạo thư mục con.");
-                        Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
-                        printEmptyAndCut(0, 150, false, 1, bitmapPrint);
-                        return CompletableFuture.completedFuture(null);
-                    }
-                    Log.d(TAG, "Thư mục con ID: " + subFolderId);
-                    if (fCombinedDrive == null || nameCombinedDrive == null) {
-                        Log.e(TAG, "Không có file ảnh ghép để upload Drive.");
-                        Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
-                        printEmptyAndCut(0, 150, false, 1, bitmapPrint);
-                        return CompletableFuture.completedFuture(null);
-                    }
-                    return driveService.uploadFileToDrive(
-                            fCombinedDrive.getAbsolutePath(), subFolderId, nameCombinedDrive
-                    ).handle((driveLink, ex) -> {
-                        if (ex != null) {
-                            Log.e(TAG, "Lỗi upload Drive (ảnh in)", ex);
-                        } else if (driveLink != null) {
-                            Log.d(TAG, "Tải lên thành công: " + driveLink);
-                        } else {
-                            Log.e(TAG, "Upload thất bại (Drive) hoặc link rỗng.");
-                        }
-                        printMonoDriveQrForUploadedFileLink(driveLink);
-                        return null;
-                    });
-                }).whenComplete((r, t) -> {
-                    if (t != null) {
-                        Log.e(TAG, "Drive upload pipeline (ảnh in)", t);
-                    }
-                    Log.d(TAG, "Kết thúc pipeline Drive (kể cả lỗi) — clear + mở chụp lại");
-                    runOnUiThread(() -> {
-                        imgSolve.clearCache();
-                        releaseCaptureAfterDriveUpload();
-                    });
-                });
+            if (fCombinedDrive != null && fCombinedDrive.exists()) {
+                printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderName));
+                uploadMonoPhotoToServerInBackground(fCombinedDrive, monoFolderName);
+            } else {
+                printMonoDriveQrForUploadedFileLink(null);
             }
+            imgSolve.clearCache();
+            releaseCaptureAfterDriveUpload();
         } else {
 
             Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
@@ -835,6 +799,40 @@ public class Activity_Camera2 extends AppCompatActivity {
             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
             printEmptyAndCut(0, 150, false, 1, end);
         }
+    }
+
+    private String buildMonoServerGalleryUrl(String folderName) {
+        return ApiService.BASE_URL + "/mono-results/g/" + folderName;
+    }
+
+    private String generateMonoServerFolderId() {
+        String datePart = new java.text.SimpleDateFormat("ddMMyyyyHHmmss", Locale.US).format(new java.util.Date());
+        Random r = new Random();
+        StringBuilder randomPart = new StringBuilder(10);
+        for (int i = 0; i < 10; i++) {
+            randomPart.append(MONO_FOLDER_ID_CHARS.charAt(r.nextInt(MONO_FOLDER_ID_CHARS.length())));
+        }
+        return datePart + randomPart;
+    }
+
+    private void uploadMonoPhotoToServerInBackground(@Nullable File uploadFile, String folderName) {
+        if (uploadFile == null || !uploadFile.exists()) {
+            Log.e(TAG, "uploadMonoPhotoToServerInBackground: file null/không tồn tại");
+            return;
+        }
+        executorService.execute(() -> {
+            try {
+                String token = TokenManager.getInstance(Activity_Camera2.this).getToken();
+                if (token == null || token.isEmpty()) {
+                    Log.e(TAG, "Upload Mono server: thiếu token");
+                    return;
+                }
+                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(token, folderName, uploadFile, "1.jpg");
+                Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderName));
+            } catch (Exception e) {
+                Log.e(TAG, "Upload Mono server lỗi", e);
+            }
+        });
     }
 
     public void printQR(final Bitmap bitmap, final int light, final int size,

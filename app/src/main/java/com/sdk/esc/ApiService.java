@@ -8,11 +8,15 @@ import org.json.JSONObject;
 import androidx.annotation.Nullable;
 
 import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 /**
  * API đăng nhập giống Mphoto-Android (POST /api/auth/login, GET /api/auth/validate).
@@ -305,5 +309,90 @@ public class ApiService {
             Log.e(TAG, "Validate token error", e);
             return false;
         }
+    }
+
+    public static JSONObject uploadMonoPhotoWithName(String token, String folderName, File photoFile, String uploadFileName)
+        throws Exception {
+        if (token == null || token.isEmpty()) {
+            throw new Exception("Thiếu token");
+        }
+        if (folderName == null || folderName.trim().isEmpty()) {
+            throw new Exception("Thiếu folderName");
+        }
+        if (photoFile == null || !photoFile.exists()) {
+            throw new Exception("Ảnh upload không tồn tại");
+        }
+        String boundary = "----MphotoMonoBoundary" + UUID.randomUUID();
+        URL url = new URL(BASE_URL + "/mono-results/upload-with-name");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + token);
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(120000);
+
+        try (DataOutputStream out = new DataOutputStream(conn.getOutputStream())) {
+            writeFormField(out, boundary, "folderName", folderName);
+            String fileName = (uploadFileName == null || uploadFileName.isEmpty()) ? "1.jpg" : uploadFileName;
+            writeFilePart(out, boundary, "photos", fileName, "image/jpeg", photoFile);
+            out.writeBytes("--" + boundary + "--\r\n");
+            out.flush();
+        }
+
+        int code = conn.getResponseCode();
+        java.io.InputStream in = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        if (in == null) {
+            conn.disconnect();
+            throw new Exception("Upload Mono lỗi HTTP " + code);
+        }
+        StringBuilder body = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                body.append(line);
+            }
+        }
+        conn.disconnect();
+        if (code < 200 || code >= 300) {
+            throw new Exception("Upload Mono lỗi HTTP " + code + ": " + body);
+        }
+        String s = body.toString().trim();
+        return s.isEmpty() ? new JSONObject() : new JSONObject(s);
+    }
+
+    public static JSONArray getMonoAllGalleryIds(String token) throws Exception {
+        return getJsonArrayAuthed("/mono-results/all-gallery-ids", token);
+    }
+
+    private static void writeFormField(DataOutputStream out, String boundary, String name, String value) throws Exception {
+        out.writeBytes("--" + boundary + "\r\n");
+        out.writeBytes("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n");
+        out.write(value.getBytes(StandardCharsets.UTF_8));
+        out.writeBytes("\r\n");
+    }
+
+    private static void writeFilePart(
+        DataOutputStream out,
+        String boundary,
+        String fieldName,
+        String fileName,
+        String contentType,
+        File file
+    ) throws Exception {
+        out.writeBytes("--" + boundary + "\r\n");
+        out.writeBytes(
+            "Content-Disposition: form-data; name=\"" + fieldName + "\"; filename=\"" + fileName + "\"\r\n"
+        );
+        out.writeBytes("Content-Type: " + contentType + "\r\n\r\n");
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = fis.read(buffer)) != -1) {
+                out.write(buffer, 0, n);
+            }
+        }
+        out.writeBytes("\r\n");
     }
 }

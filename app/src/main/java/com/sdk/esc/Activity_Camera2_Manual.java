@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.app.ProgressDialog;
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -102,6 +103,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -110,6 +112,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import print.Print;
 
 public class Activity_Camera2_Manual extends AppCompatActivity {
+    private static final String MONO_FOLDER_ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
 
     private ProgressDialog progressDialog;
 
@@ -120,7 +123,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private CaptureRequest.Builder captureRequestBuilder;
     private static final String TAG = "AndroidCameraApi";
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
-    public Handler handler;
     TextView countdown; // Textview for counting down before capture image ( 3 2 1 )
     private TextureView textureView;
     private  int ISOvalue=400;
@@ -1672,15 +1674,50 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
     }
 
+    private void openLocalImageInGallery(@NonNull MonoGalleryGroupAdapter.Item item) {
+        if (item.previewUri == null) {
+            Toast.makeText(this, "Không có ảnh local để mở", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        executorService.execute(() -> {
+            Bitmap bm = decodeBitmapFromUriSafe(item.previewUri);
+            if (bm == null) {
+                try {
+                    File f = MonoFolderImages.resolveFileFromUri(
+                            Activity_Camera2_Manual.this,
+                            item.previewUri,
+                            item.folderId + "_1.jpg"
+                    );
+                    if (f != null && f.exists()) {
+                        bm = BitmapFactory.decodeFile(f.getAbsolutePath());
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            final Bitmap previewBitmap = bm;
+            runOnUiThread(() -> {
+                if (previewBitmap == null) {
+                    Toast.makeText(Activity_Camera2_Manual.this, "Không mở được ảnh local", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                ImageView iv = new ImageView(Activity_Camera2_Manual.this);
+                iv.setImageBitmap(previewBitmap);
+                iv.setAdjustViewBounds(true);
+                iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                new AlertDialog.Builder(Activity_Camera2_Manual.this)
+                        .setTitle(item.folderId)
+                        .setView(iv)
+                        .setPositiveButton(R.string.close, (d, w) -> d.dismiss())
+                        .show();
+            });
+        });
+    }
+
     /**
      * Hiển thị QR; chỉ khi chạm vào mã QR mới mở link (không mở trình duyệt ngay khi bấm nút).
      */
     private void openMonoUserDriveFolderQrDialog() {
         GoogleDriveService g = new GoogleDriveService(this);
-        if (!g.isDriveReady()) {
-            Toast.makeText(this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
-            return;
-        }
         String link = g.getMonoUserFolderLink(this);
         if (link != null) {
             showDriveFolderQrDialogInternal(link, g);
@@ -1690,15 +1727,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Toast.makeText(this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
             return;
         }
-        Toast.makeText(this, R.string.drive_link_creating, Toast.LENGTH_SHORT).show();
-        g.createOrGetSubFolder(this).thenAccept(id -> runOnUiThread(() -> {
-            String l = GoogleDriveService.folderIdToWebLink(id);
-            if (l == null) {
-                Toast.makeText(Activity_Camera2_Manual.this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
-                return;
-            }
-            showDriveFolderQrDialogInternal(l, new GoogleDriveService(Activity_Camera2_Manual.this));
-        }));
+        Toast.makeText(this, R.string.mono_syncing, Toast.LENGTH_SHORT).show();
+        executorService.execute(() -> {
+            String resolvedLink = MonoDriveServerSync.resolveFolderLinkForUi(Activity_Camera2_Manual.this);
+            runOnUiThread(() -> {
+                if (resolvedLink == null || resolvedLink.isEmpty()) {
+                    Toast.makeText(Activity_Camera2_Manual.this, R.string.drive_link_unavailable, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                showDriveFolderQrDialogInternal(resolvedLink, new GoogleDriveService(Activity_Camera2_Manual.this));
+            });
+        });
     }
 
     private void showDriveFolderQrDialogInternal(String link, GoogleDriveService g) {
@@ -1743,10 +1782,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
     private void showMonoGalleryPickerDialog() {
         View root = getLayoutInflater().inflate(R.layout.dialog_mono_gallery, null);
-        TextView openDrive = root.findViewById(R.id.textOpenMonoDriveFolder);
-        if (openDrive != null) {
-            openDrive.setOnClickListener(v -> openMonoUserDriveFolderQrDialog());
-        }
+        Button btnTabLocal = root.findViewById(R.id.btnMonoTabLocal);
+        Button btnTabServer = root.findViewById(R.id.btnMonoTabServer);
         RecyclerView rv = root.findViewById(R.id.recyclerMonoGallery);
         TextView empty = root.findViewById(R.id.textMonoGalleryEmpty);
         ProgressBar progress = root.findViewById(R.id.progressMonoGallery);
@@ -1757,131 +1794,183 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         GridLayoutManager glm = new GridLayoutManager(this, 3);
         rv.setLayoutManager(glm);
-        MonoGalleryThumbAdapter adapter = new MonoGalleryThumbAdapter();
+        MonoGalleryGroupAdapter adapter = new MonoGalleryGroupAdapter();
         rv.setAdapter(adapter);
-        int gapPx = (int) (16 * getResources().getDisplayMetrics().density);
+        int gapPx = (int) (10 * getResources().getDisplayMetrics().density);
         rv.addItemDecoration(new MonoGalleryGridGapDecoration(3, gapPx));
+        final int pageSize = 5;
+        final int[] currentTab = {0}; // 0 local, 1 server
+        final List<MonoGalleryGroupAdapter.Item> localItems = new ArrayList<>();
+        final List<MonoGalleryGroupAdapter.Item> serverItems = new ArrayList<>();
+        final int[] visibleCount = {pageSize, pageSize}; // local, server
 
-        final boolean[] loading = {false};
-        final boolean[] hasMore = {true};
-        final int[] nextOffset = {0};
-        final int dialogPageSize = 5;
-
-        Runnable updateLoadMoreUi = () -> {
-            if (btnLoadMore == null) {
-                return;
+        Runnable renderCurrent = () -> {
+            List<MonoGalleryGroupAdapter.Item> src = currentTab[0] == 0 ? localItems : serverItems;
+            int tabIndex = currentTab[0] == 0 ? 0 : 1;
+            int currentVisible = Math.min(Math.max(visibleCount[tabIndex], 0), src.size());
+            List<MonoGalleryGroupAdapter.Item> shown = new ArrayList<>(src.subList(0, currentVisible));
+            adapter.setItems(shown);
+            progress.setVisibility(View.GONE);
+            if (src.isEmpty()) {
+                if (empty != null) empty.setVisibility(View.VISIBLE);
+            } else {
+                if (empty != null) empty.setVisibility(View.GONE);
             }
-            btnLoadMore.setVisibility(hasMore[0] ? View.VISIBLE : View.GONE);
-            btnLoadMore.setEnabled(!loading[0] && hasMore[0]);
-        };
-
-        Runnable tryLoadNext = new Runnable() {
-            @Override
-            public void run() {
-                if (loading[0] || !hasMore[0]) {
-                    return;
+            if (btnTabLocal != null) btnTabLocal.setEnabled(currentTab[0] != 0);
+            if (btnTabServer != null) btnTabServer.setEnabled(currentTab[0] != 1);
+            if (btnLoadMore != null) {
+                if (currentVisible < src.size()) {
+                    btnLoadMore.setVisibility(View.VISIBLE);
+                    btnLoadMore.setEnabled(true);
+                } else {
+                    btnLoadMore.setVisibility(View.GONE);
                 }
-                if (nextOffset[0] >= MonoFolderImages.MAX_ITEMS) {
-                    hasMore[0] = false;
-                    return;
-                }
-                loading[0] = true;
-                final int requestOffset = nextOffset[0];
-                final boolean isFirst = (requestOffset == 0);
-                executorService.execute(() -> {
-                    List<Uri> page = MonoFolderImages.loadPage(Activity_Camera2_Manual.this, requestOffset);
-                    runOnUiThread(() -> {
-                        loading[0] = false;
-                        int nRaw = page.size();
-                        int take = Math.min(dialogPageSize, nRaw);
-                        List<Uri> shown = (take <= 0) ? Collections.emptyList() : new ArrayList<>(page.subList(0, take));
-                        if (isFirst) {
-                            progress.setVisibility(View.GONE);
-                            if (shown.isEmpty()) {
-                                if (empty != null) {
-                                    empty.setVisibility(View.VISIBLE);
-                                }
-                                rv.setVisibility(View.GONE);
-                                hasMore[0] = false;
-                            } else {
-                                if (empty != null) {
-                                    empty.setVisibility(View.GONE);
-                                }
-                                rv.setVisibility(View.VISIBLE);
-                                adapter.setInitial(shown);
-                                nextOffset[0] += shown.size();
-                            }
-                        } else {
-                            if (!shown.isEmpty()) {
-                                adapter.appendPage(shown);
-                                nextOffset[0] += shown.size();
-                            }
-                        }
-                        if (shown.size() < dialogPageSize || nextOffset[0] >= MonoFolderImages.MAX_ITEMS) {
-                            hasMore[0] = false;
-                        }
-                        updateLoadMoreUi.run();
-                    });
-                });
             }
         };
 
-        final Runnable[] reloadAll = new Runnable[1];
-        reloadAll[0] = () -> {
-            loading[0] = false;
-            nextOffset[0] = 0;
-            hasMore[0] = true;
+        Runnable reloadData = () -> {
             progress.setVisibility(View.VISIBLE);
-            rv.setVisibility(View.VISIBLE);
-            if (empty != null) {
-                empty.setVisibility(View.GONE);
-            }
-            updateLoadMoreUi.run();
-            loading[0] = true;
+            if (empty != null) empty.setVisibility(View.GONE);
             executorService.execute(() -> {
-                List<Uri> page = MonoFolderImages.loadPage(Activity_Camera2_Manual.this, 0);
-                runOnUiThread(() -> {
-                    loading[0] = false;
-                    progress.setVisibility(View.GONE);
-                    int nRaw = page.size();
-                    int take = Math.min(dialogPageSize, nRaw);
-                    List<Uri> shown = (take <= 0) ? Collections.emptyList() : new ArrayList<>(page.subList(0, take));
-                    if (shown.isEmpty()) {
-                        adapter.setInitial(Collections.emptyList());
-                        if (empty != null) {
-                            empty.setVisibility(View.VISIBLE);
+                List<MonoFolderImages.LocalGalleryItem> local = MonoFolderImages.loadLocalGalleryItems(Activity_Camera2_Manual.this);
+                java.util.Set<String> serverIds = new java.util.HashSet<>();
+                List<MonoGalleryGroupAdapter.Item> servers = new ArrayList<>();
+                try {
+                    String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
+                    if (token != null && !token.isEmpty()) {
+                        org.json.JSONArray idArr = ApiService.getMonoAllGalleryIds(token);
+                        if (idArr != null) {
+                            for (int i = 0; i < idArr.length(); i++) {
+                                String id = idArr.optString(i, "");
+                                if (id != null && !id.trim().isEmpty()) {
+                                    serverIds.add(id.trim());
+                                }
+                            }
                         }
-                        rv.setVisibility(View.GONE);
-                        hasMore[0] = false;
-                    } else {
-                        if (empty != null) {
-                            empty.setVisibility(View.GONE);
+                        org.json.JSONObject obj = ApiService.getJsonObjectAuthed("/mono-results/groups?page=1&limit=10000", token);
+                        org.json.JSONArray arr = obj.optJSONArray("data");
+                        if (arr != null) {
+                            for (int i = 0; i < arr.length(); i++) {
+                                org.json.JSONObject it = arr.optJSONObject(i);
+                                if (it == null) continue;
+                                String folderId = it.optString("folderId", "");
+                                if (folderId.isEmpty()) continue;
+                                MonoGalleryGroupAdapter.Item sItem = new MonoGalleryGroupAdapter.Item();
+                                sItem.folderId = folderId;
+                                sItem.viewUrl = it.optString("viewUrl", buildMonoServerGalleryUrl(folderId));
+                                sItem.synced = true;
+                                sItem.localSource = false;
+                                org.json.JSONArray photos = it.optJSONArray("photos");
+                                if (photos != null && photos.length() > 0) {
+                                    org.json.JSONObject p0 = photos.optJSONObject(0);
+                                    if (p0 != null) {
+                                        String u = p0.optString("url", "");
+                                        if (!u.isEmpty()) sItem.previewUri = Uri.parse(u);
+                                    }
+                                }
+                                servers.add(sItem);
+                            }
                         }
-                        rv.setVisibility(View.VISIBLE);
-                        adapter.setInitial(shown);
-                        nextOffset[0] = shown.size();
-                        hasMore[0] = shown.size() >= dialogPageSize && nextOffset[0] < MonoFolderImages.MAX_ITEMS;
                     }
-                    updateLoadMoreUi.run();
-                    rv.scrollToPosition(0);
+                } catch (Exception e) {
+                    Log.w(TAG, "load server mono groups", e);
+                }
+
+                List<MonoGalleryGroupAdapter.Item> locals = new ArrayList<>();
+                for (MonoFolderImages.LocalGalleryItem l : local) {
+                    MonoGalleryGroupAdapter.Item item = new MonoGalleryGroupAdapter.Item();
+                    item.folderId = l.folderId;
+                    item.previewUri = l.previewUri;
+                    item.synced = serverIds.contains(l.folderId);
+                    item.localSource = true;
+                    item.viewUrl = buildMonoServerGalleryUrl(l.folderId);
+                    locals.add(item);
+                }
+                runOnUiThread(() -> {
+                    localItems.clear();
+                    localItems.addAll(locals);
+                    serverItems.clear();
+                    serverItems.addAll(servers);
+                    visibleCount[0] = Math.min(pageSize, localItems.size());
+                    visibleCount[1] = Math.min(pageSize, serverItems.size());
+                    renderCurrent.run();
                 });
             });
         };
 
-        adapter.setOnDeleteListener((position, uri) -> {
-            new AlertDialog.Builder(this)
+        adapter.setListener(new MonoGalleryGroupAdapter.Listener() {
+            @Override
+            public void onViewClick(@NonNull MonoGalleryGroupAdapter.Item item) {
+                if (item.localSource) {
+                    openLocalImageInGallery(item);
+                } else {
+                    openDriveFolderUrl(item.viewUrl);
+                }
+            }
+
+            @Override
+            public void onPrintClick(@NonNull MonoGalleryGroupAdapter.Item item) {
+                executorService.execute(() -> {
+                    try {
+                        if (!ensurePrinterReadyForDialogPrint()) {
+                            return;
+                        }
+                        Bitmap bm = resolveBitmapForReprint(item);
+                        if (bm == null) {
+                            runOnUiThread(() -> Toast.makeText(Activity_Camera2_Manual.this, "Không đọc được ảnh để in", Toast.LENGTH_SHORT).show());
+                            return;
+                        }
+                        printImage(bm, 0, 576, false, 1);
+                        boolean downloadOn = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("Download", false);
+                        if (downloadOn) {
+                            String qrUrl = buildMonoServerGalleryUrl(item.folderId);
+                            printMonoDriveQrForUploadedFileLink(qrUrl);
+                        } else {
+                            Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
+                            printEmptyAndCut(0, 150, false, 1, end);
+                        }
+                    } catch (Throwable e) {
+                        Log.e(TAG, "print mono gallery item", e);
+                        runOnUiThread(() -> Toast.makeText(Activity_Camera2_Manual.this, "In ảnh thất bại", Toast.LENGTH_SHORT).show());
+                    }
+                });
+            }
+
+            @Override
+            public void onSyncClick(@NonNull MonoGalleryGroupAdapter.Item item) {
+                if (!item.localSource || item.synced || item.previewUri == null) return;
+                executorService.execute(() -> {
+                    try {
+                        String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
+                        if (token == null || token.isEmpty()) throw new Exception("Thiếu token");
+                        File f = MonoFolderImages.resolveFileFromUri(Activity_Camera2_Manual.this, item.previewUri, item.folderId + "_1.jpg");
+                        if (f == null || !f.exists()) throw new Exception("Không đọc được file local");
+                        ApiService.uploadMonoPhotoWithName(token, item.folderId, f, "1.jpg");
+                        runOnUiThread(() -> {
+                            Toast.makeText(Activity_Camera2_Manual.this, "Đồng bộ thành công", Toast.LENGTH_SHORT).show();
+                            reloadData.run();
+                        });
+                    } catch (Exception e) {
+                        Log.e(TAG, "sync mono local", e);
+                        runOnUiThread(() -> Toast.makeText(Activity_Camera2_Manual.this, "Đồng bộ thất bại", Toast.LENGTH_SHORT).show());
+                    }
+                });
+            }
+
+            @Override
+            public void onDeleteClick(@NonNull MonoGalleryGroupAdapter.Item item) {
+                if (!item.localSource || item.previewUri == null) return;
+                new AlertDialog.Builder(Activity_Camera2_Manual.this)
                     .setMessage(R.string.mono_gallery_delete_confirm)
                     .setNegativeButton(R.string.Cancel, (d, w) -> d.dismiss())
                     .setPositiveButton(R.string.mono_gallery_yes_delete, (d, w) -> {
                         d.dismiss();
                         executorService.execute(() -> {
-                            boolean ok = MonoFolderImages.deleteImage(Activity_Camera2_Manual.this, uri);
+                            boolean ok = MonoFolderImages.deleteImage(Activity_Camera2_Manual.this, item.previewUri);
                             runOnUiThread(() -> {
                                 if (ok) {
                                     Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_gallery_deleted, Toast.LENGTH_SHORT).show();
-                                    if (reloadAll[0] != null) {
-                                        reloadAll[0].run();
-                                    }
+                                    reloadData.run();
                                 } else {
                                     Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_gallery_delete_failed, Toast.LENGTH_SHORT).show();
                                 }
@@ -1889,14 +1978,33 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                         });
                     })
                     .show();
+            }
         });
 
-        tryLoadNext.run();
-
-        if (btnLoadMore != null) {
-            btnLoadMore.setOnClickListener(v -> tryLoadNext.run());
-            updateLoadMoreUi.run();
+        if (btnTabLocal != null) {
+            btnTabLocal.setOnClickListener(v -> {
+                currentTab[0] = 0;
+                renderCurrent.run();
+            });
         }
+        if (btnTabServer != null) {
+            btnTabServer.setOnClickListener(v -> {
+                currentTab[0] = 1;
+                renderCurrent.run();
+            });
+        }
+        if (btnLoadMore != null) {
+            btnLoadMore.setOnClickListener(v -> {
+                List<MonoGalleryGroupAdapter.Item> src = currentTab[0] == 0 ? localItems : serverItems;
+                int tabIndex = currentTab[0] == 0 ? 0 : 1;
+                if (visibleCount[tabIndex] < src.size()) {
+                    visibleCount[tabIndex] = Math.min(visibleCount[tabIndex] + pageSize, src.size());
+                    renderCurrent.run();
+                }
+            });
+        }
+
+        reloadData.run();
 
         AlertDialog galleryDialog = new AlertDialog.Builder(this)
                 .setView(root)
@@ -1913,6 +2021,55 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     (int) (m.heightPixels * 0.8f)
             );
         }
+    }
+
+    private void openMonoServerGalleryListDialog() {
+        String token = TokenManager.getInstance(this).getToken();
+        if (token == null || token.isEmpty()) {
+            Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        executorService.execute(() -> {
+            try {
+                org.json.JSONObject data = ApiService.getJsonObjectAuthed("/mono-results/groups?page=1&limit=10000", token);
+                org.json.JSONArray arr = data.optJSONArray("data");
+                if (arr == null || arr.length() == 0) {
+                    runOnUiThread(() -> Toast.makeText(
+                        Activity_Camera2_Manual.this,
+                        R.string.mono_gallery_empty,
+                        Toast.LENGTH_SHORT
+                    ).show());
+                    return;
+                }
+                String[] labels = new String[arr.length()];
+                String[] urls = new String[arr.length()];
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONObject item = arr.optJSONObject(i);
+                    String folderId = item != null ? item.optString("folderId", "") : "";
+                    String viewUrl = item != null ? item.optString("viewUrl", "") : "";
+                    labels[i] = folderId;
+                    urls[i] = viewUrl;
+                }
+                runOnUiThread(() -> new AlertDialog.Builder(Activity_Camera2_Manual.this)
+                    .setTitle("Server Mono Galleries")
+                    .setItems(labels, (d, which) -> {
+                        String url = urls[which];
+                        if (url == null || url.isEmpty()) {
+                            url = buildMonoServerGalleryUrl(labels[which]);
+                        }
+                        openDriveFolderUrl(url);
+                    })
+                    .setNegativeButton(R.string.close, (d, w) -> d.dismiss())
+                    .show());
+            } catch (Exception e) {
+                Log.e(TAG, "openMonoServerGalleryListDialog", e);
+                runOnUiThread(() -> Toast.makeText(
+                    Activity_Camera2_Manual.this,
+                    R.string.drive_link_unavailable,
+                    Toast.LENGTH_SHORT
+                ).show());
+            }
+        });
     }
 
     // Hiển thị dialog chọn ISO
@@ -2386,22 +2543,29 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 } else {
                 File combinedFileForDrive = null;
                 String combinedNameForDrive = null;
+                final String monoFolderName = generateMonoServerFolderId();
+                final String monoLocalPhotoName = monoFolderName + "_1.jpg";
                 Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
                 try {
-                    if (fullPageForFile != null) {
-                        combinedNameForDrive = PrinterTestMode.newTestFileNameJpeg();
+                    Bitmap sourceForDrive = fullPageForFile != null
+                            ? fullPageForFile
+                            : (combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap);
+                    if (sourceForDrive != null) {
+                        combinedNameForDrive = monoLocalPhotoName;
                         combinedFileForDrive = PrinterTestMode.writeJpegToCacheDir(
-                                Activity_Camera2_Manual.this, fullPageForFile, combinedNameForDrive);
+                                Activity_Camera2_Manual.this, sourceForDrive, combinedNameForDrive);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Ghi ảnh đã ghép (khung+phụ) cho Drive", e);
                 }
                 try {
                     if (fullPageForFile != null) {
-                        MonoGallerySaver.savePrintedBitmapToGallery(Activity_Camera2_Manual.this, fullPageForFile);
+                        MonoGallerySaver.saveBitmapToMonoFolder(Activity_Camera2_Manual.this, fullPageForFile, monoLocalPhotoName);
                     } else {
-                        MonoGallerySaver.savePrintedBitmapToGallery(Activity_Camera2_Manual.this,
-                                combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap);
+                        Bitmap src = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
+                        if (src != null) {
+                            MonoGallerySaver.saveBitmapToMonoFolder(Activity_Camera2_Manual.this, src, monoLocalPhotoName);
+                        }
                     }
                 } catch (Exception e) {
                     Log.d(TAG, "save gallery: " + e.getMessage());
@@ -2428,50 +2592,20 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
                 boolean Download= prefs.getBoolean("Download", false);
                 if(Download) {
-                GoogleDriveService driveService = new GoogleDriveService(this);
                 final File fCombinedDrive = combinedFileForDrive;
-                final String nameCombinedDrive = combinedNameForDrive;
-
-                // 1️⃣ Tạo thư mục con — upload file ảnh ghép (giống thư viện), không phải file chụp gốc
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    driveService.createSubFolder().thenCompose(subFolderId -> {
-                        if (subFolderId == null) {
-                            Log.e(TAG, "Không thể tạo thư mục con.");
-                            Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
-                            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
-                            return CompletableFuture.completedFuture(null);
-                        }
-                        Log.d(TAG, "Thư mục con ID: " + subFolderId);
-                        if (fCombinedDrive == null || nameCombinedDrive == null) {
-                            Log.e(TAG, "Không có file ảnh ghép để upload Drive.");
-                            Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
-                            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
-                            return CompletableFuture.completedFuture(null);
-                        }
-                        return driveService.uploadFileToDrive(
-                                fCombinedDrive.getAbsolutePath(), subFolderId, nameCombinedDrive
-                        ).handle((driveLink, ex) -> {
-                            if (ex != null) {
-                                Log.e(TAG, "Lỗi upload Drive (ảnh in)", ex);
-                            } else if (driveLink != null) {
-                                Log.d(TAG, "Tải lên thành công: " + driveLink);
-                            } else {
-                                Log.e(TAG, "Upload thất bại (Drive) hoặc link rỗng.");
-                            }
-                            printMonoDriveQrForUploadedFileLink(driveLink);
-                            return null;
-                        });
-                    }).whenComplete((r, t) -> {
-                        if (t != null) {
-                            Log.e(TAG, "Drive upload pipeline (Manual)", t);
-                        }
-                        Log.d(TAG, "Kết thúc pipeline Drive — clear + mở chụp lại");
-                        runOnUiThread(() -> {
-                            imgSolve.clearCache();
-                            releaseLiveCaptureAfterDrive();
-                        });
-                    });
-                }}
+                if (fCombinedDrive != null && fCombinedDrive.exists()) {
+                    final String galleryUrl = buildMonoServerGalleryUrl(monoFolderName);
+                    // In QR trước (theo tên gallery), sau đó upload nền.
+                    printMonoDriveQrForUploadedFileLink(galleryUrl);
+                    uploadMonoPhotoToServerInBackground(fCombinedDrive, monoFolderName);
+                } else {
+                    printMonoDriveQrForUploadedFileLink(null);
+                }
+                runOnUiThread(() -> {
+                    imgSolve.clearCache();
+                    releaseLiveCaptureAfterDrive();
+                });
+                }
                 else {
 
                     Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
@@ -2526,12 +2660,151 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
     }
 
+    private String buildMonoServerGalleryUrl(String folderName) {
+        return ApiService.BASE_URL + "/mono-results/g/" + folderName;
+    }
+
+    @Nullable
+    private Bitmap resolveBitmapForReprint(@NonNull MonoGalleryGroupAdapter.Item item) {
+        Bitmap bm = null;
+        if (item.previewUri != null) {
+            bm = decodeBitmapFromUriSafe(item.previewUri);
+        }
+        if (bm != null) {
+            return bm;
+        }
+        String picUrl = null;
+        String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
+        if (token != null && !token.isEmpty() && item.folderId != null && !item.folderId.isEmpty()) {
+            try {
+                org.json.JSONObject pub = ApiService.getJsonObjectAuthed("/mono-results/public/" + item.folderId, token);
+                org.json.JSONArray photos = pub.optJSONArray("photos");
+                if (photos != null && photos.length() > 0) {
+                    org.json.JSONObject p0 = photos.optJSONObject(0);
+                    if (p0 != null) {
+                        picUrl = p0.optString("url", null);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if ((picUrl == null || picUrl.isEmpty()) && item.previewUri != null) {
+            String s = String.valueOf(item.previewUri);
+            if (s.startsWith("http://") || s.startsWith("https://")) {
+                picUrl = s;
+            }
+        }
+        if (picUrl == null || picUrl.isEmpty()) {
+            return null;
+        }
+        return decodeBitmapFromUrlSafe(picUrl);
+    }
+
+    @Nullable
+    private Bitmap decodeBitmapFromUriSafe(@NonNull Uri uri) {
+        try {
+            String scheme = uri.getScheme();
+            if (!ContentResolver.SCHEME_CONTENT.equals(scheme) && !ContentResolver.SCHEME_FILE.equals(scheme)) {
+                return null;
+            }
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (java.io.InputStream in1 = getContentResolver().openInputStream(uri)) {
+                if (in1 == null) return null;
+                BitmapFactory.decodeStream(in1, null, bounds);
+            }
+            int sample = 1;
+            int targetW = 1400;
+            while ((bounds.outWidth / sample) > targetW) sample *= 2;
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = Math.max(1, sample);
+            try (java.io.InputStream in2 = getContentResolver().openInputStream(uri)) {
+                if (in2 == null) return null;
+                return BitmapFactory.decodeStream(in2, null, opts);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "decodeBitmapFromUriSafe", t);
+            return null;
+        }
+    }
+
+    @Nullable
+    private Bitmap decodeBitmapFromUrlSafe(@NonNull String urlStr) {
+        java.net.HttpURLConnection conn = null;
+        try {
+            java.net.URL url = new java.net.URL(urlStr);
+            conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(20000);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Accept", "image/*,*/*");
+            try (java.io.InputStream in = conn.getInputStream();
+                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    bos.write(buf, 0, n);
+                }
+                byte[] data = bos.toByteArray();
+                if (data.length == 0) return null;
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+                int sample = 1;
+                int targetW = 1400;
+                while ((bounds.outWidth / sample) > targetW) sample *= 2;
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = Math.max(1, sample);
+                return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "decodeBitmapFromUrlSafe", t);
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private String generateMonoServerFolderId() {
+        String datePart = new java.text.SimpleDateFormat("ddMMyyyyHHmmss", Locale.US).format(new java.util.Date());
+        Random r = new Random();
+        StringBuilder randomPart = new StringBuilder(10);
+        for (int i = 0; i < 10; i++) {
+            randomPart.append(MONO_FOLDER_ID_CHARS.charAt(r.nextInt(MONO_FOLDER_ID_CHARS.length())));
+        }
+        return datePart + randomPart;
+    }
+
+    private void uploadMonoPhotoToServerInBackground(@Nullable File uploadFile, String folderName) {
+        if (uploadFile == null || !uploadFile.exists()) {
+            Log.e(TAG, "uploadMonoPhotoToServerInBackground: file null/không tồn tại");
+            return;
+        }
+        executorService.execute(() -> {
+            try {
+                String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
+                if (token == null || token.isEmpty()) {
+                    Log.e(TAG, "Upload Mono server: thiếu token");
+                    return;
+                }
+                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(token, folderName, uploadFile, "1.jpg");
+                Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderName));
+            } catch (Exception e) {
+                Log.e(TAG, "Upload Mono server lỗi", e);
+            }
+        });
+    }
+
 
     public void printImage(final Bitmap bitmap, final int light, final int size,
                            final boolean isRotate, final int sype) {
 
 
         executorService.execute(() -> {
+            if (bitmap == null || bitmap.isRecycled()) {
+                notifyPrintFailure(new IllegalArgumentException("bitmap null/recycled"));
+                return;
+            }
             Bitmap bitmapPrint = bitmap;
             bitmapPrint.setDensity(bitmap.getDensity());
             if (isRotate) {
@@ -2548,10 +2821,20 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
             } catch (Exception e) {
-                handler.sendEmptyMessage(PRINT_FAILURE);
+                Log.w(TAG, "printImage first attempt failed, fallback print", e);
+                try {
+                    // Fallback for some printer firmwares that fail with setPrintResolution/light params.
+                    Print.PrintBitmap(bitmapPrint, 1, 0);
+                } catch (Exception ex) {
+                    notifyPrintFailure(ex);
+                }
             }
-            bitmap.recycle();
-            bitmapPrint.recycle();
+            if (bitmap != null && !bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+            if (bitmapPrint != null && bitmapPrint != bitmap && !bitmapPrint.isRecycled()) {
+                bitmapPrint.recycle();
+            }
         });
     }
     /**
@@ -2577,6 +2860,41 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
             printEmptyAndCut(0, 150, false, 1, end);
         }
+    }
+
+    private CompletableFuture<String> uploadPrintedFileWithRetry(
+            GoogleDriveService driveService,
+            @Nullable String firstFolderId,
+            @Nullable File file,
+            @Nullable String displayName
+    ) {
+        if (file == null || !file.exists() || displayName == null || displayName.isEmpty()) {
+            Log.e(TAG, "uploadPrintedFileWithRetry: file/displayName không hợp lệ");
+            return CompletableFuture.completedFuture(null);
+        }
+        final String path = file.getAbsolutePath();
+        if (firstFolderId == null || firstFolderId.isEmpty()) {
+            Log.w(TAG, "uploadPrintedFileWithRetry: firstFolderId rỗng, thử tạo/lấy lại folder");
+            return CompletableFuture.supplyAsync(() -> driveService.getOrCreateMonoUserFolderId(Activity_Camera2_Manual.this))
+                    .thenCompose(fid -> {
+                        if (fid == null || fid.isEmpty()) {
+                            return CompletableFuture.completedFuture(null);
+                        }
+                        return driveService.uploadFileToDrive(path, fid, displayName);
+                    });
+        }
+        return driveService.uploadFileToDrive(path, firstFolderId, displayName)
+                .thenCompose(link -> {
+                    if (link != null && !link.isEmpty()) {
+                        return CompletableFuture.completedFuture(link);
+                    }
+                    Log.w(TAG, "Upload lần 1 thất bại, retry bằng folder mới/đồng bộ");
+                    return CompletableFuture.supplyAsync(() -> driveService.getOrCreateMonoUserFolderId(Activity_Camera2_Manual.this))
+                            .thenCompose(fid -> {
+                                String retryFolderId = (fid == null || fid.isEmpty()) ? firstFolderId : fid;
+                                return driveService.uploadFileToDrive(path, retryFolderId, displayName);
+                            });
+                });
     }
 
     public void printQR(final Bitmap bitmap, final int light, final int size,
@@ -2647,7 +2965,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 imageBitmap.recycle();
                 bitmapPrint.recycle();
             } catch (Exception e) {
-                handler.sendEmptyMessage(PRINT_FAILURE);
+                notifyPrintFailure(e);
             }
         });
     }
@@ -2658,7 +2976,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             // Lấy ảnh từ drawable (end.jpg)
             Bitmap bitmapPrint=bitmap;
             if (bitmapPrint == null) {
-                handler.sendEmptyMessage(PRINT_FAILURE);
+                notifyPrintFailure(null);
                 return;
             }
 
@@ -2676,7 +2994,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 Print.PrintBitmap(bitmapPrint, sype, light);
                 Print.CutPaper(0); // Cắt giấy đầy đủ
             } catch (Exception e) {
-                handler.sendEmptyMessage(PRINT_FAILURE);
+                notifyPrintFailure(e);
             }
 
             bitmapPrint.recycle();
@@ -2724,10 +3042,62 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
             } catch (Exception e) {
-                handler.sendEmptyMessage(PRINT_FAILURE);
+                notifyPrintFailure(e);
             }
             bitmapPrint.recycle();
         });
+    }
+
+    private boolean ensurePrinterReadyForDialogPrint() {
+        if (PrinterTestMode.isEnabled(this)) {
+            return true;
+        }
+        if (Print.IsOpened()) {
+            return true;
+        }
+        try {
+            if (device != null) {
+                try {
+                    Print.PortClose();
+                } catch (Exception ignored) {
+                }
+                if (Print.PortOpen(Activity_Camera2_Manual.this, device) == 0 && Print.IsOpened()) {
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "reopen printer port failed", t);
+        }
+        if (havingUsb) {
+            try {
+                connectUSB(); // Request USB permission/open port asynchronously.
+            } catch (Throwable t) {
+                Log.w(TAG, "connectUSB retry failed", t);
+            }
+        }
+        runOnUiThread(() -> Toast.makeText(
+                Activity_Camera2_Manual.this,
+                "Máy in chưa sẵn sàng. Hãy cắm lại USB và thử lại.",
+                Toast.LENGTH_SHORT
+        ).show());
+        return false;
+    }
+
+    private void notifyPrintFailure(@Nullable Throwable error) {
+        if (error != null) {
+            Log.e(TAG, "Print failed", error);
+        } else {
+            Log.e(TAG, "Print failed: bitmap is null");
+        }
+        String reason = "In ảnh thất bại";
+        if (error != null && error.getMessage() != null && !error.getMessage().isEmpty()) {
+            reason = "In ảnh thất bại: " + error.getMessage();
+            if (error.getMessage().contains("WriteData") || error.getMessage().contains("null object reference")) {
+                reason = "In ảnh thất bại: máy in chưa kết nối ổn định, vui lòng rút/cắm lại USB";
+            }
+        }
+        final String reasonText = reason;
+        runOnUiThread(() -> Toast.makeText(Activity_Camera2_Manual.this, reasonText, Toast.LENGTH_SHORT).show());
     }
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override

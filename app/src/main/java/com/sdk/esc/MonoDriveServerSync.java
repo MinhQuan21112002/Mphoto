@@ -54,6 +54,83 @@ public final class MonoDriveServerSync {
         });
     }
 
+    /**
+     * Dùng cho UI "Xem link Drive": ưu tiên lấy link đã lưu trên server, chỉ tạo folder mới khi thật sự chưa có.
+     * Chạy ở background thread.
+     */
+    public static String resolveFolderLinkForUi(Context anyContext) {
+        Context app = anyContext.getApplicationContext();
+        TokenManager tm = TokenManager.getInstance(app);
+        String token = tm.getToken();
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        if (!tm.isLoggedIn()) {
+            return null;
+        }
+
+        String userId = tm.getUserId();
+        if (userId == null || userId.isEmpty()) {
+            userId = "unknown";
+        }
+        String spKey = "MonoDriveUserFolderMphoto_" + userId;
+        SharedPreferences sp = app.getSharedPreferences("GoogleDrive", Context.MODE_PRIVATE);
+
+        JSONObject fromServer = null;
+        try {
+            fromServer = ApiService.getJsonObjectAuthedOrNullOn404(API_PATH, token);
+        } catch (Exception e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            if (isUnauthorizedError(msg)) {
+                Log.w(TAG, "resolveFolderLinkForUi: hết phiên");
+                return null;
+            }
+            Log.w(TAG, "resolveFolderLinkForUi: GET server lỗi, sẽ fallback tạo folder: " + msg);
+        }
+
+        if (fromServer != null) {
+            String serverWebLink = fromServer.optString("webLink", null);
+            if (serverWebLink != null && !serverWebLink.trim().isEmpty()) {
+                return serverWebLink.trim();
+            }
+            String serverId = fromServer.optString("folderId", null);
+            if (serverId != null && !serverId.isEmpty() && !"null".equalsIgnoreCase(serverId)) {
+                sp.edit().putString(spKey, serverId).apply();
+                MPhotoUserDataBackup.scheduleSave(app);
+                return GoogleDriveService.folderIdToWebLink(serverId);
+            }
+        }
+
+        GoogleDriveService drive = new GoogleDriveService(app);
+        if (!drive.isDriveReady()) {
+            return null;
+        }
+
+        String localId = sp.getString(spKey, null);
+        if (localId != null && !localId.isEmpty() && drive.isDriveFolderStillThere(localId)) {
+            return GoogleDriveService.folderIdToWebLink(localId);
+        }
+
+        String localOrNew = drive.getOrCreateMonoUserFolderId(app);
+        if (localOrNew == null || localOrNew.isEmpty()) {
+            return null;
+        }
+        sp.edit().putString(spKey, localOrNew).apply();
+        MPhotoUserDataBackup.scheduleSave(app);
+        String web = GoogleDriveService.folderIdToWebLink(localOrNew);
+        try {
+            JSONObject body = new JSONObject();
+            body.put("folderId", localOrNew);
+            if (web != null) {
+                body.put("webLink", web);
+            }
+            ApiService.putJsonObjectAuthed(API_PATH, token, body);
+        } catch (Exception e) {
+            Log.w(TAG, "resolveFolderLinkForUi: PUT mono-drive-folder: " + e.getMessage());
+        }
+        return web;
+    }
+
     private static void runSync(Context app, String token) {
         String userId = TokenManager.getInstance(app).getUserId();
         if (userId == null || userId.isEmpty()) {

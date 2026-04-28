@@ -41,7 +41,7 @@
     <string name="printer_test_mode">Test máy in (bỏ kiểm tra USB)</string>
     <string name="mono_folder_thumb">Ảnh gần nhất (M-Photo Mono)</string>
     <string name="mono_gallery_title">Ảnh M-Photo Mono</string>
-    <string name="mono_gallery_open_drive_link">QR thư mục Drive</string>
+    <string name="mono_gallery_open_drive_link">Server</string>
     <string name="mono_gallery_qr_tap_to_open">Chạm vào mã QR để mở link thư mục trên trình duyệt</string>
     <string name="mono_gallery_qr_dialog_title">Thư mục Google Drive (M-Photo Mono)</string>
     <string name="mono_gallery_empty">Chưa có ảnh trong thư mục này.</string>

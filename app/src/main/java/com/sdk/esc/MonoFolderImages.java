@@ -20,6 +20,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Đọc ảnh trong thư mục hệ thống {@code Pictures/M-Photo Mono_{userId}} (MediaStore / file) và
@@ -30,6 +32,22 @@ public final class MonoFolderImages {
     public static final int PAGE_SIZE = 10;
     /** 12 lần × 10 ảnh */
     public static final int MAX_ITEMS = 120;
+    private static final Pattern LOCAL_GALLERY_FILE = Pattern.compile("^([0-9]{14}[a-z0-9]{10})_1\\.(jpg|jpeg)$");
+    private static final Pattern LEGACY_LOCAL_FILE = Pattern.compile("^(\\d{8})_(\\d{6})_(\\d{10})\\.(jpg|jpeg)$");
+
+    public static final class LocalGalleryItem {
+        public final String folderId;
+        public final Uri previewUri;
+        public final String fileName;
+        public final long time;
+
+        public LocalGalleryItem(String folderId, Uri previewUri, String fileName, long time) {
+            this.folderId = folderId;
+            this.previewUri = previewUri;
+            this.fileName = fileName;
+            this.time = time;
+        }
+    }
 
     private MonoFolderImages() {}
 
@@ -163,6 +181,86 @@ public final class MonoFolderImages {
     public static Uri getLatestImageUri(Context context) {
         List<Uri> first = loadPage(context, 0);
         return first.isEmpty() ? null : first.get(0);
+    }
+
+    public static List<LocalGalleryItem> loadLocalGalleryItems(Context context) {
+        String folderName = getFolderName(context);
+        List<Uri> merged = listMergedUrisUpTo120(context, folderName);
+        Map<String, LocalGalleryItem> byFolder = new HashMap<>();
+        for (Uri uri : merged) {
+            String name = resolveImageFileName(context, uri);
+            if (name == null || name.isEmpty()) continue;
+            String lower = name.toLowerCase(Locale.US);
+            Matcher m = LOCAL_GALLERY_FILE.matcher(lower);
+            String folderId = null;
+            if (m.matches()) {
+                folderId = m.group(1);
+            } else {
+                Matcher legacy = LEGACY_LOCAL_FILE.matcher(lower);
+                if (legacy.matches()) {
+                    String yyyymmdd = legacy.group(1);
+                    String hhmmss = legacy.group(2);
+                    String random = legacy.group(3);
+                    String dd = yyyymmdd.substring(6, 8);
+                    String mm = yyyymmdd.substring(4, 6);
+                    String yyyy = yyyymmdd.substring(0, 4);
+                    folderId = dd + mm + yyyy + hhmmss + random;
+                }
+            }
+            // Bỏ qua file local không theo naming gallery Mono (vd IMG_...),
+            // để tránh đánh dấu "chưa đồng bộ" sai.
+            if (folderId == null || folderId.trim().isEmpty()) {
+                continue;
+            }
+            long t = System.currentTimeMillis();
+            if (ContentResolver.SCHEME_FILE.equals(uri.getScheme())) {
+                String p = uri.getPath();
+                if (p != null) {
+                    File f = new File(p);
+                    if (f.isFile()) {
+                        t = f.lastModified();
+                    }
+                }
+            }
+            LocalGalleryItem old = byFolder.get(folderId);
+            if (old == null || t > old.time) {
+                byFolder.put(folderId, new LocalGalleryItem(folderId, uri, name, t));
+            }
+        }
+        List<LocalGalleryItem> out = new ArrayList<>(byFolder.values());
+        out.sort((a, b) -> Long.compare(b.time, a.time));
+        return out;
+    }
+
+    public static File resolveFileFromUri(Context context, Uri uri, String fallbackName) {
+        try {
+            if (uri == null) return null;
+            if (ContentResolver.SCHEME_FILE.equals(uri.getScheme())) {
+                String p = uri.getPath();
+                if (p != null) {
+                    File f = new File(p);
+                    if (f.exists() && f.isFile()) return f;
+                }
+                return null;
+            }
+            if (ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) {
+                File out = new File(context.getCacheDir(), fallbackName != null ? fallbackName : ("mono_" + System.currentTimeMillis() + ".jpg"));
+                try (java.io.InputStream in = context.getContentResolver().openInputStream(uri);
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                    if (in == null) return null;
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        fos.write(buf, 0, n);
+                    }
+                    fos.flush();
+                }
+                return out.exists() ? out : null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "resolveFileFromUri", e);
+        }
+        return null;
     }
 
     /**
