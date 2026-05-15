@@ -1,5 +1,7 @@
 package com.sdk.esc;
 
+import com.mphoto.mono.R;
+
 import android.content.ContentResolver;
 import android.net.Uri;
 import android.view.LayoutInflater;

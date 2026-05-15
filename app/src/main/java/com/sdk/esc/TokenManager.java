@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
  */
 public class TokenManager {
     private static final String TAG = "TokenManager";
-    /** Tách biệt với Mphoto-Android / bản cũ (cùng applicationId) để tránh tự bỏ qua màn login vì token lạ. */
+    /** Tên file prefs cố định; dữ liệu vẫn tách theo applicationId (Lite vs Mono). */
     private static final String PREF_NAME = "MPhotoMphoto_Camera2_Auth";
     private static final String KEY_TOKEN = "auth_token";
     private static final String KEY_USER_ID = "user_id";

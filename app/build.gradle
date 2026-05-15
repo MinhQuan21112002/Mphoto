@@ -2,14 +2,14 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdk 34
-    namespace 'com.sdk.esc'
+    namespace 'com.mphoto.mono'
 
     defaultConfig {
-        applicationId "com.sdk.esc"
+        applicationId "com.mphoto.mono"
         minSdkVersion 21
         targetSdkVersion 34
         versionCode APP_VERSION_CODE.toInteger()
-        versionName "ESC_Demo_V${APP_VERSION_NAME}"
+        versionName "MPhoto_Mono_${APP_VERSION_NAME}"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 

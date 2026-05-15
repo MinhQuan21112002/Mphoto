@@ -1,5 +1,7 @@
 package com.sdk.esc;
 
+import com.mphoto.mono.R;
+
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.Context;

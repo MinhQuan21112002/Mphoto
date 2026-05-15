@@ -1,5 +1,7 @@
 package com.sdk.esc;
 
+import com.mphoto.mono.R;
+
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.SharedPreferences;

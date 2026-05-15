@@ -1,4 +1,7 @@
 package com.sdk.esc;
+
+import com.mphoto.mono.R;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;

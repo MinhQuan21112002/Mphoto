@@ -1,2 +1,2 @@
 include ':app'
-rootProject.name = "AndroidESCDemo"
+rootProject.name = "MPhotoMono"

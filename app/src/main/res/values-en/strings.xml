@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_title">M Photo</string>
+    <string name="app_name">M-Photo Mono</string>
+    <string name="app_title">M-Photo Mono</string>
     <string name="ExposureTime">Exposure Time</string>
     <string name="take_picture">Take Picture</string>
     <string name="settings">Settings</string>

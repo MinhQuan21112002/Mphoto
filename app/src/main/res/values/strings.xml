@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_title">M Photo</string>
+    <string name="app_name">M-Photo Mono</string>
+    <string name="app_title">M-Photo Mono</string>
     <string name="ExposureTime">Phơi sáng</string>
     <string name="take_picture">Take picture</string>
     <string name="settings">setting\n</string>
@@ -20,7 +21,7 @@
     <string name="korean">Tiếng Hàn</string>
     <string name="DownloadImage">Tải ảnh</string>
 
-    <string name="login_screen_title">M-PHOTO</string>
+    <string name="login_screen_title">M-PHOTO MONO</string>
     <string name="login_email_label">Email</string>
     <string name="login_email_hint">Nhập email</string>
     <string name="login_password_label">Mật khẩu</string>

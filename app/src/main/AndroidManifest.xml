@@ -51,7 +51,7 @@
     </queries>
 
     <application
-        android:name=".MPhotoApp"
+        android:name="com.sdk.esc.MPhotoApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -60,7 +60,7 @@
 
 
         <activity
-            android:name=".LoginActivity"
+            android:name="com.sdk.esc.LoginActivity"
             android:exported="true"
             android:label="@string/app_title">
             <intent-filter>
@@ -70,11 +70,11 @@
         </activity>
 
         <activity
-            android:name=".Activity_Camera2"
+            android:name="com.sdk.esc.Activity_Camera2"
             android:exported="true"
             android:label="@string/app_title" />
         <activity
-            android:name=".Activity_Camera2_Manual"
+            android:name="com.sdk.esc.Activity_Camera2_Manual"
             android:exported="true" />
 
         <provider
