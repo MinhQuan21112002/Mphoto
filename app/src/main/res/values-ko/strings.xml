@@ -14,12 +14,31 @@
     <string name="RecommendFrame">추천 이미지 종횡비: 4x3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">이미지 목록</string>
+    <string name="sub_photo_list_title">보조 사진 목록</string>
+    <string name="frame_list_title">프레임 목록</string>
     <string name="close">닫기</string>
     <string name="please_connect_printer">프린터를 연결하고 전원을 켜주세요</string>
     <string name="vietnamese">베트남어</string>
     <string name="english">영어</string>
     <string name="korean">한국어</string>
-    <string name="DownloadImage">다운로드</string>
+    <string name="DownloadImage">QR 코드 인쇄</string>
 
+    <string name="login_screen_title">M-PHOTO MONO</string>
+    <string name="login_email_label">이메일</string>
+    <string name="login_email_hint">이메일 입력</string>
+    <string name="login_password_label">비밀번호</string>
+    <string name="login_password_hint">비밀번호 입력</string>
+    <string name="login_button">로그인</string>
+    <string name="login_guest_button">로그인 없이 사용</string>
+    <string name="login_language">언어</string>
+    <string name="login_select_language_title">언어 선택</string>
+    <string name="login_please_enter_email">이메일을 입력하세요</string>
+    <string name="login_please_enter_password">비밀번호를 입력하세요</string>
+    <string name="login_successful">로그인 성공</string>
+    <string name="login_error_processing">서버 응답 처리 오류</string>
+    <string name="login_invalid_credentials">이메일 또는 비밀번호가 올바르지 않습니다</string>
+    <string name="login_connection_error">연결 오류. 다시 시도하세요.</string>
+    <string name="login_guest_mode_hint">게스트 모드: 촬영 및 로컬 인쇄만 가능. 서버 동기화는 로그인이 필요합니다.</string>
+    <string name="logout">로그아웃</string>
 
 </resources>

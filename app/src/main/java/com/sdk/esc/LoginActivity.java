@@ -3,14 +3,19 @@ package com.sdk.esc;
 import com.mphoto.mono.R;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import java.util.Locale;
 import org.json.JSONObject;
 
 public class LoginActivity extends AppCompatActivity {
@@ -24,11 +29,12 @@ public class LoginActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        applyLocaleFromPrefs();
         super.onCreate(savedInstanceState);
 
         tokenManager = TokenManager.getInstance(this);
 
-        if (tokenManager.isLoggedIn()) {
+        if (tokenManager.canEnterApp()) {
             navigateToMain();
             return;
         }
@@ -38,10 +44,48 @@ public class LoginActivity extends AppCompatActivity {
         emailEditText = findViewById(R.id.emailEditText);
         passwordEditText = findViewById(R.id.passwordEditText);
         loginButton = findViewById(R.id.loginButton);
+        Button guestButton = findViewById(R.id.guestButton);
+        ImageButton languageButton = findViewById(R.id.languageButton);
         errorText = findViewById(R.id.errorText);
         progressBar = findViewById(R.id.progressBar);
 
         loginButton.setOnClickListener(v -> performLogin());
+        if (guestButton != null) {
+            guestButton.setOnClickListener(v -> enterGuestMode());
+        }
+        if (languageButton != null) {
+            languageButton.setOnClickListener(v -> showLanguagePicker());
+        }
+    }
+
+    private void applyLocaleFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        String lang = prefs.getString("language", "vi");
+        Locale locale = new Locale(lang);
+        Locale.setDefault(locale);
+        Configuration config = new Configuration();
+        config.setLocale(locale);
+        getResources().updateConfiguration(config, getResources().getDisplayMetrics());
+    }
+
+    private void showLanguagePicker() {
+        final String[] labels = AppLanguages.nativeDisplayLabels();
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.login_select_language_title)
+                .setItems(labels, (dialog, which) -> {
+                    getSharedPreferences("settings", MODE_PRIVATE)
+                            .edit()
+                            .putString("language", AppLanguages.CODES[which])
+                            .apply();
+                    recreate();
+                })
+                .show();
+    }
+
+    private void enterGuestMode() {
+        tokenManager.enterGuestMode();
+        Toast.makeText(this, getString(R.string.login_guest_mode_hint), Toast.LENGTH_LONG).show();
+        navigateToMain();
     }
 
     private void performLogin() {

@@ -109,8 +109,8 @@ public class Activity_Camera2 extends AppCompatActivity {
     private final int PRINT_FAILURE = 0;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_STORAGE_PERMISSION = 201;
-    /** Tải ảnh in lên Drive (bật Download) bất đồng bộ — chặn chụp tiếp cho tới khi xong. */
-    private volatile boolean blockCaptureForDriveUpload;
+    /** Luồng riêng cho upload server — không dùng chung queue in máy in. */
+    private final ExecutorService uploadExecutorService = Executors.newSingleThreadExecutor();
     private UsbDevice device = null;
     private PendingIntent mPermissionIntent = null;
     private static final String ACTION_USB_PERMISSION = "com.PRINTSDKSample";
@@ -162,7 +162,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         TokenManager tokenManager = TokenManager.getInstance(this);
-        if (!tokenManager.isLoggedIn()) {
+        if (!tokenManager.canEnterApp()) {
             startActivity(new Intent(this, LoginActivity.class));
             finish();
             return;
@@ -190,16 +190,16 @@ public class Activity_Camera2 extends AppCompatActivity {
         Gson gson1 = new Gson();
         bitmapListImageView2 = gson1.fromJson(jsonStringImageview2, new TypeToken<List<String>>() {}.getType());
 
-        //xu ly anh phu trong googleDrive -------------------------------------------------------------------------------
-        GoogleDriveService googleDriveService = new GoogleDriveService(this);
-        googleDriveService.createOrGetSubFolder(this).thenAccept(folderId -> {
-            if (folderId != null) {
-                Log.d("MainActivity", "Folder NameCard đã sẵn sàng với ID: " + folderId);
-            } else {
-                Log.e("MainActivity", "Lỗi khi tạo hoặc lấy thư mục NameCard.");
-            }
-        });
-        //--------------------------------------------------------------------------------------------------------------
+        if (tokenManager.canUseCloudFeatures()) {
+            GoogleDriveService googleDriveService = new GoogleDriveService(this);
+            googleDriveService.createOrGetSubFolder(this).thenAccept(folderId -> {
+                if (folderId != null) {
+                    Log.d("MainActivity", "Folder NameCard đã sẵn sàng với ID: " + folderId);
+                } else {
+                    Log.e("MainActivity", "Lỗi khi tạo hoặc lấy thư mục NameCard.");
+                }
+            });
+        }
         counterTime=sharedPreferences.getInt("counterTime", 1);
         if (!bitmapListImageView2.isEmpty()) {
             image = UserAssetFileStore.decodeListEntryToBitmap(this,
@@ -260,10 +260,6 @@ public class Activity_Camera2 extends AppCompatActivity {
 
             }
             else {
-                if (blockCaptureForDriveUpload) {
-                    Toast.makeText(Activity_Camera2.this, R.string.drive_upload_wait_capture, Toast.LENGTH_SHORT).show();
-                    return;
-                }
                 startCountdown();
                 textureView.setEnabled(false);
                 clickButton.setEnabled(false);
@@ -384,10 +380,6 @@ public class Activity_Camera2 extends AppCompatActivity {
     }
 
     private void startCountdown() {
-        if (blockCaptureForDriveUpload) {
-            Toast.makeText(this, R.string.drive_upload_wait_capture, Toast.LENGTH_SHORT).show();
-            return;
-        }
         // Hiển thị TextView countdown
         countdown.setVisibility(View.VISIBLE);
         countdownSound = MediaPlayer.create(this, R.raw.countdown); // Sử dụng tệp âm thanh cho 3 giây
@@ -635,19 +627,6 @@ public class Activity_Camera2 extends AppCompatActivity {
         newFrameBitmapColor.recycle();
         combinedBitmapColor.setDensity(bitmapFrame.getDensity());
 
-        runOnUiThread(() -> {
-            if (needWaitForDriveUploadPipeline()) {
-                blockCaptureForDriveUpload = true;
-            } else {
-                if (textureView != null) {
-                    textureView.setEnabled(true);
-                }
-                if (clickButton != null) {
-                    clickButton.setEnabled(true);
-                    clickButton.setVisibility(View.VISIBLE);
-                }
-            }
-        });
         if (PrinterTestMode.isEnabled(this)) {
             try {
                 String fn = PrinterTestMode.newTestFileNameJpeg();
@@ -663,24 +642,17 @@ public class Activity_Camera2 extends AppCompatActivity {
                 if (combinedBitmapColor != null) {
                     combinedBitmapColor.recycle();
                 }
-                SharedPreferences prefsTest = getSharedPreferences("settings", MODE_PRIVATE);
-                if (prefsTest.getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    final String monoFolderName = generateMonoServerFolderId();
+                final String monoFolderName = generateMonoServerFolderId();
+                if (isShowQrEnabled()) {
                     printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderName));
-                    uploadMonoPhotoToServerInBackground(tmp, monoFolderName);
-                    runOnUiThread(() -> {
-                        imgSolve.clearCache();
-                        releaseCaptureAfterDriveUpload();
-                    });
-                } else {
-                    imgSolve.clearCache();
                 }
+                scheduleServerUpload(tmp, monoFolderName);
+                imgSolve.clearCache();
+                enableCaptureControls();
             } catch (Exception e) {
-                Log.e(TAG, "Test mode: save/Drive", e);
-                runOnUiThread(() -> {
-                    imgSolve.clearCache();
-                    releaseCaptureAfterDriveUpload();
-                });
+                Log.e(TAG, "Test mode: save/upload", e);
+                imgSolve.clearCache();
+                enableCaptureControls();
             }
             counterTime++;
             SharedPreferences preferences2t = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
@@ -732,25 +704,21 @@ public class Activity_Camera2 extends AppCompatActivity {
         );
 
         printImage2(image, 0, 576, false, 1);
-        SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
-        boolean Download= prefs.getBoolean("Download", false);
-        if(Download) {
-            final File fCombinedDrive = combinedFileForDrive;
+        final File fCombinedDrive = combinedFileForDrive;
+        final boolean showQr = isShowQrEnabled();
+        if (showQr) {
             if (fCombinedDrive != null && fCombinedDrive.exists()) {
                 printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderName));
-                uploadMonoPhotoToServerInBackground(fCombinedDrive, monoFolderName);
             } else {
                 printMonoDriveQrForUploadedFileLink(null);
             }
-            imgSolve.clearCache();
-            releaseCaptureAfterDriveUpload();
         } else {
-
             Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1,bitmapPrint);
-            imgSolve.clearCache();
-            releaseCaptureAfterDriveUpload();
+            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
         }
+        scheduleServerUpload(fCombinedDrive, monoFolderName);
+        imgSolve.clearCache();
+        enableCaptureControls();
 //        imgSolve.clearCache();
         counterTime++;
         SharedPreferences preferences2 = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
@@ -761,15 +729,15 @@ public class Activity_Camera2 extends AppCompatActivity {
 
     }
 
-    private boolean needWaitForDriveUploadPipeline() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+    /** Switch "In mã QR" — chỉ khi đã đăng nhập (có upload server). */
+    private boolean isShowQrEnabled() {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
             return false;
         }
         return getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("Download", false);
     }
 
-    private void releaseCaptureAfterDriveUpload() {
-        blockCaptureForDriveUpload = false;
+    private void enableCaptureControls() {
         runOnUiThread(() -> {
             if (textureView != null) {
                 textureView.setEnabled(true);
@@ -777,6 +745,32 @@ public class Activity_Camera2 extends AppCompatActivity {
             if (clickButton != null) {
                 clickButton.setEnabled(true);
                 clickButton.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    /** Upload server trên luồng riêng — không chặn hàng đợi in. */
+    private void scheduleServerUpload(@Nullable File uploadFile, String folderName) {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
+            return;
+        }
+        if (uploadFile == null || !uploadFile.exists()) {
+            return;
+        }
+        final File fileToUpload = uploadFile;
+        final String folderId = folderName;
+        uploadExecutorService.execute(() -> {
+            try {
+                String token = TokenManager.getInstance(Activity_Camera2.this).getToken();
+                if (token == null || token.isEmpty()) {
+                    Log.e(TAG, "Upload Mono server: thiếu token");
+                    return;
+                }
+                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(
+                        token, folderId, fileToUpload, "1.jpg");
+                Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderId));
+            } catch (Exception e) {
+                Log.e(TAG, "Upload Mono server lỗi", e);
             }
         });
     }
@@ -817,25 +811,6 @@ public class Activity_Camera2 extends AppCompatActivity {
         return datePart + randomPart;
     }
 
-    private void uploadMonoPhotoToServerInBackground(@Nullable File uploadFile, String folderName) {
-        if (uploadFile == null || !uploadFile.exists()) {
-            Log.e(TAG, "uploadMonoPhotoToServerInBackground: file null/không tồn tại");
-            return;
-        }
-        executorService.execute(() -> {
-            try {
-                String token = TokenManager.getInstance(Activity_Camera2.this).getToken();
-                if (token == null || token.isEmpty()) {
-                    Log.e(TAG, "Upload Mono server: thiếu token");
-                    return;
-                }
-                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(token, folderName, uploadFile, "1.jpg");
-                Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderName));
-            } catch (Exception e) {
-                Log.e(TAG, "Upload Mono server lỗi", e);
-            }
-        });
-    }
 
     public void printQR(final Bitmap bitmap, final int light, final int size,
                         final boolean haveWifi, final int sype) {
@@ -848,9 +823,8 @@ public class Activity_Camera2 extends AppCompatActivity {
                 // Xoay QR code nếu cần
                 if (haveWifi) {
                     SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
-                    Boolean Download= prefs.getBoolean("Download", false);
                     String lang = prefs.getString("language", "vi");
-                    if(Download)
+                    if (isShowQrEnabled())
                     {
                         if(lang.equals("vi"))
                         {
@@ -1386,6 +1360,8 @@ public class Activity_Camera2 extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        executorService.shutdownNow();
+        uploadExecutorService.shutdownNow();
         super.onDestroy();
         try {
             Print.PortClose();

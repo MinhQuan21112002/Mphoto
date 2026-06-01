@@ -12,7 +12,7 @@ import java.util.Locale;
 import java.util.Random;
 
 /**
- * Chế độ test: bỏ qua kiểm tra máy in; ở Manual, bấm In chỉ lưu thư viện + upload Drive (tên file theo thời gian + random).
+ * Chế độ test: bỏ qua kiểm tra máy in; ở Manual, bấm In chỉ lưu thư viện + upload server (QR tùy switch).
  */
 public final class PrinterTestMode {
     public static final String PREF = "settings";

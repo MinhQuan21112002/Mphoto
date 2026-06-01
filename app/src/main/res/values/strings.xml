@@ -14,12 +14,14 @@
     <string name="RecommendFrame">Kích thước khugn Ảnh đề xuất : 4x3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">Danh sách hình ảnh</string>
+    <string name="sub_photo_list_title">Danh sách ảnh phụ</string>
+    <string name="frame_list_title">Danh sách khung</string>
     <string name="close">Đóng</string>
     <string name="please_connect_printer">Vui lòng kết nối và mở máy in</string>
     <string name="vietnamese">Tiếng Việt</string>
     <string name="english">Tiếng Anh</string>
     <string name="korean">Tiếng Hàn</string>
-    <string name="DownloadImage">Tải ảnh</string>
+    <string name="DownloadImage">In mã QR</string>
 
     <string name="login_screen_title">M-PHOTO MONO</string>
     <string name="login_email_label">Email</string>
@@ -33,6 +35,11 @@
     <string name="login_error_processing">Lỗi xử lý phản hồi từ máy chủ</string>
     <string name="login_invalid_credentials">Email hoặc mật khẩu không đúng</string>
     <string name="login_connection_error">Lỗi kết nối. Vui lòng thử lại.</string>
+    <string name="login_guest_button">Dùng không cần đăng nhập</string>
+    <string name="login_language">Ngôn ngữ</string>
+    <string name="login_select_language_title">Chọn ngôn ngữ</string>
+    <string name="login_guest_mode_hint">Chế độ khách: chỉ chụp và in trên máy. Đăng nhập để đồng bộ server.</string>
+    <string name="guest_feature_need_login">Chức năng này cần đăng nhập</string>
     <string name="logout">Đăng xuất</string>
     <string name="mono_resync">Tải lại</string>
     <string name="mono_syncing">Đang đồng bộ Mono…</string>

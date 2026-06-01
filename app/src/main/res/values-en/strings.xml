@@ -14,11 +14,31 @@
     <string name="RecommendFrame">Recommended frame: 4x3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">Image List</string>
+    <string name="sub_photo_list_title">Sub-photo list</string>
+    <string name="frame_list_title">Frame list</string>
     <string name="close">Close</string>
     <string name="please_connect_printer">Please connect to And Turn on Printer</string>
     <string name="vietnamese">Vietnamese</string>
     <string name="english">English</string>
     <string name="korean">Korean</string>
-    <string name="DownloadImage">Download Image</string>
+    <string name="DownloadImage">Print QR code</string>
+
+    <string name="login_screen_title">M-PHOTO MONO</string>
+    <string name="login_email_label">Email</string>
+    <string name="login_email_hint">Enter email</string>
+    <string name="login_password_label">Password</string>
+    <string name="login_password_hint">Enter password</string>
+    <string name="login_button">Log in</string>
+    <string name="login_guest_button">Use without signing in</string>
+    <string name="login_language">Language</string>
+    <string name="login_select_language_title">Select language</string>
+    <string name="login_please_enter_email">Please enter email</string>
+    <string name="login_please_enter_password">Please enter password</string>
+    <string name="login_successful">Signed in successfully</string>
+    <string name="login_error_processing">Error processing server response</string>
+    <string name="login_invalid_credentials">Invalid email or password</string>
+    <string name="login_connection_error">Connection error. Please try again.</string>
+    <string name="login_guest_mode_hint">Guest mode: capture and print locally only. Sign in to sync with server.</string>
+    <string name="logout">Log out</string>
 
 </resources>

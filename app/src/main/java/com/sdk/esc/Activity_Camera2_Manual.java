@@ -126,6 +126,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private CaptureRequest.Builder captureRequestBuilder;
     private static final String TAG = "AndroidCameraApi";
     final private ExecutorService executorService = Executors.newSingleThreadExecutor();
+    /** Luồng riêng upload server — không chặn hàng đợi in máy in. */
+    private final ExecutorService uploadExecutorService = Executors.newSingleThreadExecutor();
     TextView countdown; // Textview for counting down before capture image ( 3 2 1 )
     private TextureView textureView;
     private  int ISOvalue=400;
@@ -137,10 +139,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private final int PRINT_THREE_INCH = 576;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private static final int REQUEST_STORAGE_PERMISSION = 201;
-    private volatile boolean blockLiveCaptureForDrive;
     private UsbDevice device = null;
     private PendingIntent mPermissionIntent = null;
     private static final String ACTION_USB_PERMISSION = "com.PRINTSDKSample";
+    @Nullable
+    private AlertDialog activeRightPanelDialog;
     // kiểm tra trạng thái  ORIENTATION của ảnh đầu ra
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
     static {
@@ -194,7 +197,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         TokenManager tokenManager = TokenManager.getInstance(this);
-        if (!tokenManager.isLoggedIn()) {
+        if (!tokenManager.canEnterApp()) {
             startActivity(new Intent(this, LoginActivity.class));
             finish();
             return;
@@ -242,14 +245,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         counterTime=sharedPreferences.getInt("counterTime", 1);
 
         btnChangeLanguage.setOnClickListener(v -> {
-            final String[] languages = {getString(R.string.korean), getString(R.string.english), getString(R.string.vietnamese),};
-            final String[] langCodes = {"ko", "en", "vi"};
-
+            final String[] languages = AppLanguages.nativeDisplayLabels();
             AlertDialog.Builder builder = new AlertDialog.Builder(Activity_Camera2_Manual.this);
-            builder.setTitle("Select Language");
+            builder.setTitle(R.string.login_select_language_title);
             builder.setItems(languages, (dialog, which) -> {
-                String selectedLangCode = langCodes[which];
-                changeLanguage(selectedLangCode);
+                changeLanguage(AppLanguages.CODES[which]);
             });
             builder.show();
         });
@@ -285,17 +285,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         //-----------------------------------------------------------
 
-        //xu ly anh phu trong googleDrive -------------------------------------------------------------------------------
-        GoogleDriveService googleDriveService = new GoogleDriveService(this);
-        googleDriveService.createOrGetSubFolder(this).thenAccept(folderId -> {
-            if (folderId != null) {
-                Log.d("MainActivity", "Folder NameCard đã sẵn sàng với ID: " + folderId);
-            } else {
-                Log.e("MainActivity", "Lỗi khi tạo hoặc lấy thư mục NameCard.");
-            }
-        });
-        SoftwareUpdateHelper.checkAndDownloadInBackground(this);
-        //--------------------------------------------------------------------------------------------------------------
+        if (tokenManager.canUseCloudFeatures()) {
+            GoogleDriveService googleDriveService = new GoogleDriveService(this);
+            googleDriveService.createOrGetSubFolder(this).thenAccept(folderId -> {
+                if (folderId != null) {
+                    Log.d("MainActivity", "Folder NameCard đã sẵn sàng với ID: " + folderId);
+                } else {
+                    Log.e("MainActivity", "Lỗi khi tạo hoặc lấy thư mục NameCard.");
+                }
+            });
+            SoftwareUpdateHelper.checkAndDownloadInBackground(this);
+        }
 
         imgSolve = new ImageSolve(this);
         btnPrint.setEnabled(false);
@@ -346,10 +346,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     Toast.makeText(getApplicationContext(), "Can't find Printer", Toast.LENGTH_SHORT).show();
                 }
             } else {
-                if (blockLiveCaptureForDrive) {
-                    Toast.makeText(Activity_Camera2_Manual.this, R.string.drive_upload_wait_capture, Toast.LENGTH_SHORT).show();
-                    return;
-                }
                 takePicture();
                 setLiveViewCaptureInputEnabled(false);
             }
@@ -612,6 +608,41 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
         }
     };
+    private void dismissActiveRightPanelDialog() {
+        if (activeRightPanelDialog != null && activeRightPanelDialog.isShowing()) {
+            activeRightPanelDialog.dismiss();
+        }
+        activeRightPanelDialog = null;
+    }
+
+    private void registerRightPanelDialog(@NonNull AlertDialog dialog) {
+        dismissActiveRightPanelDialog();
+        activeRightPanelDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (activeRightPanelDialog == d) {
+                activeRightPanelDialog = null;
+            }
+        });
+    }
+
+    /** Dialog ảnh phụ / khung: nửa phải màn hình. */
+    private void applyRightHalfDialogLayout(@NonNull AlertDialog dialog) {
+        Window window = dialog.getWindow();
+        if (window == null) {
+            return;
+        }
+        DisplayMetrics metrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        WindowManager.LayoutParams layoutParams = new WindowManager.LayoutParams();
+        layoutParams.copyFrom(window.getAttributes());
+        layoutParams.gravity = Gravity.TOP | Gravity.END;
+        layoutParams.width = (int) (metrics.widthPixels * 0.5f);
+        layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        layoutParams.x = 0;
+        layoutParams.y = (int) (48f * metrics.density);
+        window.setAttributes(layoutParams);
+    }
+
     @SuppressLint("NotifyDataSetChanged")
     private void showImagePickerDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -733,26 +764,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
 
         builder.setView(dialogView);
-        builder.setTitle(getString(R.string.image_list_title));
+        builder.setTitle(getString(R.string.sub_photo_list_title));
         builder.setPositiveButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         AlertDialog dialog = builder.create();
+        registerRightPanelDialog(dialog);
         dialog.show();
+        applyRightHalfDialogLayout(dialog);
 
+        setCloudControlEnabled(btnResyncSub);
         if (btnResyncSub != null) {
             btnResyncSub.setOnClickListener(v -> runMonoSubPhotoSyncFromServer(dialog));
-        }
-
-        // Di chuyển dialog đến góc trái
-        Window window = dialog.getWindow();
-        if (window != null) {
-            WindowManager.LayoutParams layoutParams = new WindowManager.LayoutParams();
-            layoutParams.copyFrom(window.getAttributes());
-
-            layoutParams.gravity = Gravity.TOP | Gravity.START; // Căn góc trái trên
-            layoutParams.x = 0;  // Điều chỉnh khoảng cách từ lề trái (0 = sát lề)
-            layoutParams.y = 100; // Điều chỉnh khoảng cách từ lề trên
-
-            window.setAttributes(layoutParams);
         }
 
         btnPickImage.setOnClickListener(v -> {
@@ -1232,33 +1253,27 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             }
         });
 
-        // Setup dialog
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setView(dialogView);
-        builder.setTitle(getString(R.string.image_list_title));
+        builder.setTitle(getString(R.string.frame_list_title));
         builder.setPositiveButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         AlertDialog dialog = builder.create();
+        registerRightPanelDialog(dialog);
         dialog.show();
-        Window window = dialog.getWindow();
-        if (window != null) {
-            WindowManager.LayoutParams layoutParams = new WindowManager.LayoutParams();
-            layoutParams.copyFrom(window.getAttributes());
+        applyRightHalfDialogLayout(dialog);
 
-            layoutParams.gravity = Gravity.TOP | Gravity.END; // Căn góc phải trên
-            layoutParams.x = 0;  // Khoảng cách từ lề phải (0 = sát lề)
-            layoutParams.y = 100; // Khoảng cách từ lề trên
-
-            window.setAttributes(layoutParams);
-        }
-
-        // Store dialog reference to dismiss later
-        buttonAdd.setTag(dialog);  // Store dialog reference for later dismissal
+        buttonAdd.setTag(dialog);
+        setCloudControlEnabled(btnResyncFrames);
         if (btnResyncFrames != null) {
             btnResyncFrames.setOnClickListener(v -> runMonoFrameSyncFromServer(dialog));
         }
     }
 
     private void runMonoFrameSyncFromServer(AlertDialog parentDialog) {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
+            Toast.makeText(this, R.string.guest_feature_need_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
         String token = TokenManager.getInstance(this).getToken();
         if (token == null || token.isEmpty()) {
             Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
@@ -1301,6 +1316,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
 
     private void runMonoSubPhotoSyncFromServer(AlertDialog parentDialog) {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
+            Toast.makeText(this, R.string.guest_feature_need_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
         String token = TokenManager.getInstance(this).getToken();
         if (token == null || token.isEmpty()) {
             Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
@@ -1559,9 +1578,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             swDownload.setChecked(prefSettings.getBoolean("Download", false));
             swDownload.setOnCheckedChangeListener((buttonView, isChecked) ->
                     prefSettings.edit().putBoolean("Download", isChecked).apply());
+            setCloudControlEnabled(swDownload);
         }
         Button btnLogout = dialogView.findViewById(R.id.button_logout);
         if (btnLogout != null) {
+            boolean guestMode = TokenManager.getInstance(this).isGuestMode();
+            btnLogout.setText(guestMode ? R.string.login_button : R.string.logout);
             btnLogout.setOnClickListener(v -> {
                 dialog1.dismiss();
                 TokenManager.getInstance(Activity_Camera2_Manual.this).clearToken();
@@ -1574,6 +1596,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         TextView textAppUpdateFile = dialogView.findViewById(R.id.text_app_update_file);
         bindAppUpdateFileLabel(textAppUpdateFile);
         Button btnCheckUpdate = dialogView.findViewById(R.id.button_check_app_update);
+        Button btnInstallUpdate = dialogView.findViewById(R.id.button_install_app_update);
+        setCloudControlEnabled(btnCheckUpdate);
+        setCloudControlEnabled(btnInstallUpdate);
         ProgressBar progressCheckUpdate = dialogView.findViewById(R.id.progress_check_app_update);
         if (btnCheckUpdate != null) {
             final Button btnUpd = btnCheckUpdate;
@@ -1598,7 +1623,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     }
             ));
         }
-        Button btnInstallUpdate = dialogView.findViewById(R.id.button_install_app_update);
         if (btnInstallUpdate != null) {
             btnInstallUpdate.setOnClickListener(v -> SoftwareUpdateHelper.tryInstallPending(Activity_Camera2_Manual.this));
         }
@@ -1924,8 +1948,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                             return;
                         }
                         printImage(bm, 0, 576, false, 1);
-                        boolean downloadOn = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("Download", false);
-                        if (downloadOn) {
+                        if (isShowQrEnabled()) {
                             String qrUrl = buildMonoServerGalleryUrl(item.folderId);
                             printMonoDriveQrForUploadedFileLink(qrUrl);
                         } else {
@@ -1942,6 +1965,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             @Override
             public void onSyncClick(@NonNull MonoGalleryGroupAdapter.Item item) {
                 if (!item.localSource || item.synced || item.previewUri == null) return;
+                if (!TokenManager.getInstance(Activity_Camera2_Manual.this).canUseCloudFeatures()) {
+                    Toast.makeText(Activity_Camera2_Manual.this, R.string.guest_feature_need_login, Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 executorService.execute(() -> {
                     try {
                         String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
@@ -2027,6 +2054,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
 
     private void openMonoServerGalleryListDialog() {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
+            Toast.makeText(this, R.string.guest_feature_need_login, Toast.LENGTH_SHORT).show();
+            return;
+        }
         String token = TokenManager.getInstance(this).getToken();
         if (token == null || token.isEmpty()) {
             Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
@@ -2266,16 +2297,25 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
     }
 
-    private boolean needWaitForDriveUploadPipeline() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+    /** Switch "In mã QR" — chỉ khi đã đăng nhập (có upload server). */
+    private boolean isShowQrEnabled() {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
             return false;
         }
         return getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("Download", false);
     }
 
-    private void releaseLiveCaptureAfterDrive() {
-        blockLiveCaptureForDrive = false;
-        setLiveViewCaptureInputEnabled(true);
+    private void setCloudControlEnabled(@Nullable View view) {
+        if (view == null) {
+            return;
+        }
+        boolean on = TokenManager.getInstance(this).canUseCloudFeatures();
+        view.setEnabled(on);
+        view.setAlpha(on ? 1f : 0.45f);
+    }
+
+    private void resumeLiveViewAfterPrint() {
+        new Handler(getMainLooper()).postDelayed(() -> setLiveViewCaptureInputEnabled(true), 1500);
     }
 
     private void showPostCapturePreview(Bitmap combinedColor) {
@@ -2476,14 +2516,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
         btnPrint.setOnClickListener(v -> {
-            final boolean needWaitUpload = getSharedPreferences("settings", Context.MODE_PRIVATE)
-                    .getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
             try {
-                if (needWaitUpload) {
-                    blockLiveCaptureForDrive = true;
-                } else {
-                    new Handler().postDelayed(() -> setLiveViewCaptureInputEnabled(true), 1500);
-                }
                 if (PrinterTestMode.isEnabled(Activity_Camera2_Manual.this)) {
                     String fn = PrinterTestMode.newTestFileNameJpeg();
                     try {
@@ -2499,37 +2532,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                         if (combinedBitmapColor != null) {
                             combinedBitmapColor.recycle();
                         }
-                        SharedPreferences prefsT = getSharedPreferences("settings", MODE_PRIVATE);
-                        if (prefsT.getBoolean("Download", false) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            GoogleDriveService driveService = new GoogleDriveService(Activity_Camera2_Manual.this);
-                            driveService.createSubFolder().thenCompose(subFolderId -> {
-                                if (subFolderId != null) {
-                                    return driveService.uploadFileToDrive(tmp.getAbsolutePath(), subFolderId, fn);
-                                }
-                                return CompletableFuture.completedFuture(null);
-                            }).whenComplete((r, t) -> {
-                                if (t != null) {
-                                    Log.e(TAG, "Test mode Drive", t);
-                                }
-                                runOnUiThread(() -> {
-                                    imgSolve.clearCache();
-                                    releaseLiveCaptureAfterDrive();
-                                });
-                            });
-                        } else {
-                            imgSolve.clearCache();
-                            if (needWaitUpload) {
-                                runOnUiThread(this::releaseLiveCaptureAfterDrive);
-                            }
+                        final String monoFolderNameTest = generateMonoServerFolderId();
+                        if (isShowQrEnabled()) {
+                            printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderNameTest));
                         }
+                        scheduleServerUpload(tmp, monoFolderNameTest);
+                        imgSolve.clearCache();
+                        resumeLiveViewAfterPrint();
                     } catch (Exception e) {
-                        Log.e(TAG, "Test mode save/Drive", e);
-                        runOnUiThread(() -> {
-                            imgSolve.clearCache();
-                            if (needWaitUpload) {
-                                releaseLiveCaptureAfterDrive();
-                            }
-                        });
+                        Log.e(TAG, "Test mode save/upload", e);
+                        imgSolve.clearCache();
+                        resumeLiveViewAfterPrint();
                     }
                     scheduleMonoFolderThumbnailUpdate();
                     counterTime++;
@@ -2592,29 +2605,21 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
                 printImage2(image, 0, 576, false, 1);
 
-                SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
-                boolean Download= prefs.getBoolean("Download", false);
-                if(Download) {
                 final File fCombinedDrive = combinedFileForDrive;
-                if (fCombinedDrive != null && fCombinedDrive.exists()) {
-                    final String galleryUrl = buildMonoServerGalleryUrl(monoFolderName);
-                    // In QR trước (theo tên gallery), sau đó upload nền.
-                    printMonoDriveQrForUploadedFileLink(galleryUrl);
-                    uploadMonoPhotoToServerInBackground(fCombinedDrive, monoFolderName);
+                final boolean showQr = isShowQrEnabled();
+                if (showQr) {
+                    if (fCombinedDrive != null && fCombinedDrive.exists()) {
+                        printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderName));
+                    } else {
+                        printMonoDriveQrForUploadedFileLink(null);
+                    }
                 } else {
-                    printMonoDriveQrForUploadedFileLink(null);
-                }
-                runOnUiThread(() -> {
-                    imgSolve.clearCache();
-                    releaseLiveCaptureAfterDrive();
-                });
-                }
-                else {
-
                     Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
-                    printEmptyAndCut(0, 150, false, 1,bitmapPrint);
-                    imgSolve.clearCache();
+                    printEmptyAndCut(0, 150, false, 1, bitmapPrint);
                 }
+                scheduleServerUpload(fCombinedDrive, monoFolderName);
+                imgSolve.clearCache();
+                resumeLiveViewAfterPrint();
                 //                imgSolve.clearCache();
                 counterTime++;
                 SharedPreferences preferences2 = getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
@@ -2632,9 +2637,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 }
             } catch (Exception e) {
                 Log.e("PrintError", "Exception during printImage call", e);
-                if (needWaitUpload) {
-                    runOnUiThread(this::releaseLiveCaptureAfterDrive);
-                }
+                resumeLiveViewAfterPrint();
             }
 
             adjustedBitmap2[0]=null;
@@ -2644,8 +2647,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         btnCancel.setOnClickListener(v -> {
             try {
-                blockLiveCaptureForDrive = false;
-                new Handler().postDelayed(() -> setLiveViewCaptureInputEnabled(true), 1500);
+                resumeLiveViewAfterPrint();
                 imgSolve.clearCache();
                 runOnUiThread(() -> {
                     try {
@@ -2778,20 +2780,26 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         return datePart + randomPart;
     }
 
-    private void uploadMonoPhotoToServerInBackground(@Nullable File uploadFile, String folderName) {
-        if (uploadFile == null || !uploadFile.exists()) {
-            Log.e(TAG, "uploadMonoPhotoToServerInBackground: file null/không tồn tại");
+    /** Upload server trên luồng riêng — không chặn hàng đợi in. */
+    private void scheduleServerUpload(@Nullable File uploadFile, String folderName) {
+        if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
             return;
         }
-        executorService.execute(() -> {
+        if (uploadFile == null || !uploadFile.exists()) {
+            return;
+        }
+        final File fileToUpload = uploadFile;
+        final String folderId = folderName;
+        uploadExecutorService.execute(() -> {
             try {
                 String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
                 if (token == null || token.isEmpty()) {
                     Log.e(TAG, "Upload Mono server: thiếu token");
                     return;
                 }
-                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(token, folderName, uploadFile, "1.jpg");
-                Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderName));
+                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(
+                        token, folderId, fileToUpload, "1.jpg");
+                Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderId));
             } catch (Exception e) {
                 Log.e(TAG, "Upload Mono server lỗi", e);
             }
@@ -3446,6 +3454,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         if (imageMonoLatestThumb != null) {
             imageMonoLatestThumb.removeCallbacks(monoFolderThumbRefreshRetry);
         }
+        executorService.shutdownNow();
+        uploadExecutorService.shutdownNow();
         super.onDestroy();
         try {
             Print.PortClose();

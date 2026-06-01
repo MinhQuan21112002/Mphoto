@@ -20,6 +20,8 @@ public class TokenManager {
     private static final String KEY_USERNAME = "user_name";
     /** Thời điểm đăng nhập gần nhất — phiên tối đa 6 ngày (độc lập hết hạn JWT nếu JWT dài hơn). */
     private static final String KEY_LOGIN_EPOCH_MS = "login_epoch_ms";
+    /** Dùng app không đăng nhập — không có JWT, không gọi API cloud. */
+    private static final String KEY_GUEST_MODE = "guest_mode";
     private static final long SESSION_MAX_MS = 6L * 24 * 60 * 60 * 1000L;
 
     private static TokenManager instance;
@@ -38,7 +40,11 @@ public class TokenManager {
 
     public void saveToken(String token) {
         long now = System.currentTimeMillis();
-        prefs.edit().putString(KEY_TOKEN, token).putLong(KEY_LOGIN_EPOCH_MS, now).apply();
+        prefs.edit()
+                .putString(KEY_TOKEN, token)
+                .putLong(KEY_LOGIN_EPOCH_MS, now)
+                .remove(KEY_GUEST_MODE)
+                .apply();
 
         try {
             String userId = getUserIdFromToken(token);
@@ -90,7 +96,35 @@ public class TokenManager {
         return prefs.getString(KEY_USERNAME, null);
     }
 
+    public boolean isGuestMode() {
+        return prefs.getBoolean(KEY_GUEST_MODE, false);
+    }
+
+    /** Vào camera khi đã đăng nhập hoặc chọn chế độ khách. */
+    public boolean canEnterApp() {
+        return isLoggedIn() || isGuestMode();
+    }
+
+    /** Upload, sync frame/subphoto, QR gallery server, cập nhật app từ server. */
+    public boolean canUseCloudFeatures() {
+        return isLoggedIn();
+    }
+
+    public void enterGuestMode() {
+        prefs.edit()
+                .remove(KEY_TOKEN)
+                .remove(KEY_USER_ID)
+                .remove(KEY_EMAIL)
+                .remove(KEY_USERNAME)
+                .remove(KEY_LOGIN_EPOCH_MS)
+                .putBoolean(KEY_GUEST_MODE, true)
+                .apply();
+    }
+
     public boolean isLoggedIn() {
+        if (isGuestMode()) {
+            return false;
+        }
         String token = getToken();
         if (token == null || token.isEmpty()) {
             return false;
@@ -140,6 +174,7 @@ public class TokenManager {
             .remove(KEY_EMAIL)
             .remove(KEY_USERNAME)
             .remove(KEY_LOGIN_EPOCH_MS)
+            .remove(KEY_GUEST_MODE)
             .apply();
     }
 
