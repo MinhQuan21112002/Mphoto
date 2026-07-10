@@ -40,6 +40,7 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         setContentView(R.layout.activity_login);
+        GlassDialogHelper.applyPinkSystemBars(this);
 
         emailEditText = findViewById(R.id.emailEditText);
         passwordEditText = findViewById(R.id.passwordEditText);
@@ -69,17 +70,33 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void showLanguagePicker() {
-        final String[] labels = AppLanguages.nativeDisplayLabels();
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.login_select_language_title)
-                .setItems(labels, (dialog, which) -> {
-                    getSharedPreferences("settings", MODE_PRIVATE)
-                            .edit()
-                            .putString("language", AppLanguages.CODES[which])
-                            .apply();
-                    recreate();
-                })
-                .show();
+        View root = getLayoutInflater().inflate(R.layout.dialog_language, null);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(root)
+                .create();
+        View.OnClickListener pick = v -> {
+            String code;
+            int id = v.getId();
+            if (id == R.id.btnLanguageEn) {
+                code = "en";
+            } else if (id == R.id.btnLanguageKo) {
+                code = "ko";
+            } else {
+                code = "vi";
+            }
+            getSharedPreferences("settings", MODE_PRIVATE)
+                    .edit()
+                    .putString("language", code)
+                    .apply();
+            dialog.dismiss();
+            recreate();
+        };
+        root.findViewById(R.id.btnLanguageVi).setOnClickListener(pick);
+        root.findViewById(R.id.btnLanguageEn).setOnClickListener(pick);
+        root.findViewById(R.id.btnLanguageKo).setOnClickListener(pick);
+        root.findViewById(R.id.btnCloseLanguage).setOnClickListener(v -> dialog.dismiss());
+        dialog.show();
+        GlassDialogHelper.applyGlassWindow(dialog);
     }
 
     private void enterGuestMode() {
@@ -132,6 +149,7 @@ public class LoginActivity extends AppCompatActivity {
                                 }
                             }
                             MonoDriveServerSync.requestSyncIfLoggedIn(LoginActivity.this);
+                            MonoGalleryCleanup.runInBackground(LoginActivity.this);
                             Toast.makeText(this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
                             navigateToMain();
                         } catch (Exception e) {

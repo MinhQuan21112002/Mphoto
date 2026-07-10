@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF"
+    android:background="@color/mp_brand_screen"
     tools:context="com.sdk.esc.LoginActivity">
 
     <ScrollView
@@ -36,9 +37,10 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:text="@string/login_screen_title"
-                android:textColor="#000000"
+                android:textColor="@color/mp_brand_primary"
                 android:textSize="26sp"
-                android:textStyle="bold" />
+                android:textStyle="bold" 
+                    android:fontFamily="sans-serif-medium"/>
 
             <LinearLayout
                 android:id="@+id/loginForm"
@@ -52,22 +54,25 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
                     android:text="@string/login_email_label"
-                    android:textColor="#000000"
+                    android:textColor="@color/mp_brand_text"
                     android:textSize="17sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold" 
+                    android:fontFamily="sans-serif-medium"/>
 
                 <EditText
                     android:id="@+id/emailEditText"
                     android:layout_width="match_parent"
                     android:layout_height="58dp"
-                    android:background="@drawable/my_edittext"
+                    android:background="@drawable/mono_login_edittext"
                     android:hint="@string/login_email_hint"
                     android:inputType="textEmailAddress"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:textColor="#000000"
-                    android:textColorHint="#999999"
-                    android:textSize="17sp" />
+                    android:textColor="@color/mp_brand_text"
+                    android:textColorHint="#BE8A98"
+                    android:textSize="17sp" 
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"/>
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -75,33 +80,43 @@
                     android:layout_marginTop="18dp"
                     android:layout_marginBottom="8dp"
                     android:text="@string/login_password_label"
-                    android:textColor="#000000"
+                    android:textColor="@color/mp_brand_text"
                     android:textSize="17sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold" 
+                    android:fontFamily="sans-serif-medium"/>
 
                 <EditText
                     android:id="@+id/passwordEditText"
                     android:layout_width="match_parent"
                     android:layout_height="58dp"
-                    android:background="@drawable/my_edittext"
+                    android:background="@drawable/mono_login_edittext"
                     android:hint="@string/login_password_hint"
                     android:inputType="textPassword"
+                    android:letterSpacing="0.08"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:textColor="#000000"
-                    android:textColorHint="#999999"
-                    android:textSize="17sp" />
+                    android:textColor="@color/mp_brand_text"
+                    android:textColorHint="#BE8A98"
+                    android:textSize="20sp" 
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"/>
 
                 <Button
                     android:id="@+id/loginButton"
                     android:layout_width="match_parent"
                     android:layout_height="58dp"
                     android:layout_marginTop="24dp"
-                    android:background="@drawable/button_qr_code"
+                    android:background="@drawable/mono_login_button"
+                    android:backgroundTint="@null"
+                    android:elevation="0dp"
+                    android:stateListAnimator="@null"
                     android:text="@string/login_button"
+                    android:textAllCaps="false"
                     android:textColor="#FFFFFF"
                     android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    app:backgroundTint="@null" 
+                    android:fontFamily="sans-serif-medium"/>
 
                 <Button
                     android:id="@+id/guestButton"
@@ -111,8 +126,10 @@
                     android:background="@android:color/transparent"
                     android:text="@string/login_guest_button"
                     android:textAllCaps="false"
-                    android:textColor="#333333"
-                    android:textSize="16sp" />
+                    android:textColor="@color/mp_brand_text"
+                    android:textSize="16sp" 
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"/>
 
                 <TextView
                     android:id="@+id/errorText"
@@ -120,9 +137,11 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center_horizontal"
                     android:layout_marginTop="10dp"
-                    android:textColor="#FF0000"
+                    android:textColor="#E53935"
                     android:textSize="14sp"
-                    android:visibility="gone" />
+                    android:visibility="gone" 
+                    android:fontFamily="sans-serif-medium"
+                    android:textStyle="bold"/>
             </LinearLayout>
         </LinearLayout>
     </ScrollView>
@@ -136,12 +155,14 @@
         android:background="@null"
         android:contentDescription="@string/login_language"
         android:scaleType="fitCenter"
-        android:src="@drawable/language" />
+        android:src="@drawable/language"
+        app:tint="@color/mp_brand_primary" />
 
     <ProgressBar
         android:id="@+id/progressBar"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        android:indeterminateTint="@color/mp_brand_primary"
         android:visibility="gone" />
 </FrameLayout>

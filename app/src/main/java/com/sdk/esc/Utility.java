@@ -72,6 +72,26 @@ public class Utility {
         return out;
     }
 
+    /**
+     * Ảnh thô gốc scale + lật ngang để ghép khung/upload — không sharpen/sáng/tương phản.
+     */
+    public static Bitmap buildRawFlippedForUpload(Bitmap origin, int width, int height, int compensation, Matrix flipMatrix) {
+        if (origin == null || origin.isRecycled() || width < 1 || height < 1 || flipMatrix == null) {
+            return null;
+        }
+        Bitmap aligned = Bitmap.createScaledBitmap(origin, width, height, true);
+        Bitmap enlarged = Bitmap.createScaledBitmap(aligned, width + compensation, height + compensation, true);
+        if (enlarged != aligned && aligned != origin) {
+            aligned.recycle();
+        }
+        Bitmap flipped = Bitmap.createBitmap(
+                enlarged, 0, 0, enlarged.getWidth(), enlarged.getHeight(), flipMatrix, true);
+        if (flipped != enlarged) {
+            enlarged.recycle();
+        }
+        return flipped;
+    }
+
     public static Bitmap Tobitmap90(Bitmap bitmap) {
         Matrix matrix = new Matrix();
         // 设置旋转角度

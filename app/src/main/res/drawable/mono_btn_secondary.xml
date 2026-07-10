@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nút phụ Mono — hồng nhạt -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33D45D7F">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/mp_brand_light" />
+            <corners android:radius="12dp" />
+            <stroke
+                android:width="1.5dp"
+                android:color="@color/mp_brand_pink" />
+        </shape>
+    </item>
+</ripple>

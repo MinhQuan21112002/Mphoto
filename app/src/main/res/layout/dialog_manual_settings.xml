@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="@drawable/mono_dialog_panel"
     android:orientation="vertical"
     android:padding="20dp">
 
@@ -16,12 +18,16 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/printer_test_mode"
-            android:textSize="16sp" />
+            android:textColor="@color/mp_brand_text"
+            android:textSize="16sp"
+            android:textStyle="bold" 
+        android:fontFamily="sans-serif-medium"/>
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchPrinterTestMode"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:theme="@style/ThemeOverlay.AppCompat.Light" />
     </LinearLayout>
 
     <LinearLayout
@@ -36,7 +42,10 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/DownloadImage"
-            android:textSize="16sp" />
+            android:textColor="@color/mp_brand_text"
+            android:textSize="16sp"
+            android:textStyle="bold" 
+        android:fontFamily="sans-serif-medium"/>
 
         <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchDownload"
@@ -58,29 +67,31 @@
             android:layout_height="28dp"
             android:layout_marginEnd="8dp"
             android:indeterminate="true"
+            android:indeterminateTint="@color/mp_brand_primary"
             android:visibility="gone" />
 
         <Button
             android:id="@+id/button_check_app_update"
+            style="@style/MonoPinkButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
             android:layout_weight="1"
-            android:background="@color/black"
             android:minHeight="48dp"
-            android:text="@string/app_update_check_download"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFF" />
+            android:text="@string/app_update_check_download" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/button_install_app_update"
+            style="@style/MonoPinkButton"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@color/black"
-            android:text="@string/app_update_install"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFF" />
+            android:minHeight="48dp"
+            android:text="@string/app_update_install" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
     </LinearLayout>
 
     <TextView
@@ -90,17 +101,23 @@
         android:layout_marginTop="8dp"
         android:ellipsize="end"
         android:maxLines="2"
-        android:textColor="#333333"
-        android:textSize="13sp" />
+        android:textColor="@color/mp_brand_text_muted"
+        android:textSize="13sp" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
     <Button
         android:id="@+id/button_logout"
         android:layout_width="match_parent"
         android:layout_height="52dp"
         android:layout_marginTop="20dp"
-        android:background="@color/black"
+        android:background="@drawable/mono_btn_logout"
+        android:elevation="0dp"
+        android:stateListAnimator="@null"
         android:text="@string/logout"
         android:textAllCaps="false"
         android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:textSize="16sp"
+        android:textStyle="bold" 
+        android:fontFamily="sans-serif-medium"/>
 </LinearLayout>

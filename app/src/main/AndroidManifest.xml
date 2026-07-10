@@ -72,10 +72,12 @@
         <activity
             android:name="com.sdk.esc.Activity_Camera2"
             android:exported="true"
-            android:label="@string/app_title" />
+            android:label="@string/app_title"
+            android:launchMode="singleTop" />
         <activity
             android:name="com.sdk.esc.Activity_Camera2_Manual"
-            android:exported="true" />
+            android:exported="true"
+            android:launchMode="singleTop" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

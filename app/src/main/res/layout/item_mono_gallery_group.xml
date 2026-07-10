@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="10dp"
-    android:background="#FFFFFFFF"
-    android:elevation="1dp"
+    android:background="@drawable/mono_folder_thumb_bg"
+    android:elevation="0dp"
     android:orientation="vertical"
     android:padding="10dp">
 
@@ -13,7 +14,7 @@
         android:layout_width="match_parent"
         android:layout_height="180dp"
         android:adjustViewBounds="true"
-        android:background="#FFF5F5F5"
+        android:background="@color/mp_brand_soft"
         android:scaleType="fitCenter" />
 
     <TextView
@@ -23,16 +24,20 @@
         android:layout_marginTop="8dp"
         android:ellipsize="end"
         android:maxLines="1"
-        android:textColor="#FF222222"
+        android:textColor="@color/mp_brand_text"
         android:textSize="15sp"
-        android:textStyle="bold" />
+        android:textStyle="bold" 
+        android:fontFamily="sans-serif-medium"/>
 
     <TextView
         android:id="@+id/textMonoGroupSyncState"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
-        android:textSize="13sp" />
+        android:textColor="@color/mp_brand_text_muted"
+        android:textSize="13sp" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -43,34 +48,54 @@
 
         <Button
             android:id="@+id/btnMonoGroupView"
+            style="@style/MonoPinkButtonSecondary"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="36dp"
             android:minWidth="72dp"
-            android:text="Xem" />
+            android:text="Xem"
+            android:textSize="13sp" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/btnMonoGroupPrint"
+            style="@style/MonoPinkButton"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="36dp"
             android:layout_marginStart="8dp"
             android:minWidth="72dp"
-            android:text="In" />
+            android:text="In"
+            android:textSize="13sp" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/btnMonoGroupSync"
+            style="@style/MonoPinkButtonSecondary"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="36dp"
             android:layout_marginStart="8dp"
             android:minWidth="88dp"
-            android:text="Đồng bộ" />
+            android:text="Đồng bộ"
+            android:textSize="13sp" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/btnMonoGroupDelete"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="36dp"
             android:layout_marginStart="8dp"
+            android:background="@drawable/mono_btn_logout"
+            android:elevation="0dp"
             android:minWidth="72dp"
-            android:text="Xóa" />
+            android:stateListAnimator="@null"
+            android:text="Xóa"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" 
+        android:fontFamily="sans-serif-medium"/>
     </LinearLayout>
 
 </LinearLayout>

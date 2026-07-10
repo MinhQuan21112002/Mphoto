@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
+    android:background="@drawable/mono_dialog_panel"
     android:orientation="vertical"
     android:padding="16dp">
 
@@ -13,25 +15,37 @@
 
         <Button
             android:id="@+id/btnAddImage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="+" />
+            style="@style/MonoPinkButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:text="+"
+            android:textSize="20sp" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/btnResyncMonoFrames"
+            style="@style/MonoPinkButtonSecondary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:text="@string/mono_resync" />
+            android:minHeight="48dp"
+            android:text="@string/mono_resync" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
     </LinearLayout>
+
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        android:layout_marginTop="8dp"
         android:text="@string/RecommendFrame"
-        android:textColor="@color/black"
+        android:textColor="@color/mp_brand_text"
         android:textSize="20sp"
-        android:textStyle="italic" />
+        android:textStyle="italic" 
+        android:fontFamily="sans-serif-medium"/>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewImages"
         android:layout_width="700dp"
@@ -41,11 +55,14 @@
 
     <Button
         android:id="@+id/btnLoadMoreFrame"
+        style="@style/MonoPinkButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
         android:minWidth="110dp"
         android:minHeight="44dp"
-        android:layout_marginTop="10dp"
-        android:text="@string/load_more" />
+        android:text="@string/load_more" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 </LinearLayout>

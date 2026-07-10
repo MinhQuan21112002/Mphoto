@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#6200EE</color>
-    <color name="colorPrimaryDark">#3700B3</color>
-    <color name="colorAccent">#03DAC5</color>
-    <color name="black">#000000</color>
-    <color name="hover_color">#FFDDDDDD</color> <!-- Màu xám nhạt khi hover -->
-    <color name="normal_color">#FFFFFFFF</color> <!-- Màu trắng bình thường -->
-    <color name="btn_setting_pressed_color">#FFDDDD</color> <!-- Màu khi nhấn -->
+    <!-- M-Photo brand pink (khớp Lite) -->
+    <color name="mp_brand_pink">#EFA9B8</color>
+    <color name="mp_brand_primary">#D45D7F</color>
+    <color name="mp_brand_pressed">#C04A6D</color>
+    <color name="mp_brand_soft">#FDEDF2</color>
+    <color name="mp_brand_light">#F5C4CF</color>
+    <color name="mp_brand_screen">#FFF5F7</color>
+    <color name="mp_brand_text">#8E4D61</color>
+    <color name="mp_brand_text_muted">#A86B7A</color>
 
+    <color name="colorPrimary">#D45D7F</color>
+    <color name="colorPrimaryDark">#C04A6D</color>
+    <color name="colorAccent">#EFA9B8</color>
+    <color name="black">#000000</color>
+    <color name="hover_color">#FFF5C4CF</color>
+    <color name="normal_color">#FFFFFFFF</color>
+    <color name="btn_setting_pressed_color">#FFDDDD</color>
 </resources>

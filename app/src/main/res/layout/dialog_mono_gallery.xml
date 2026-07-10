@@ -1,18 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@drawable/mono_dialog_panel"
     android:minHeight="500dp"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="16dp">
 
-    <TextView
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingBottom="8dp"
-        android:text="@string/mono_gallery_title"
-        android:textSize="18sp"
-        android:textStyle="bold" />
+        android:layout_marginBottom="8dp"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@+id/btnCloseMonoGallery"
+            android:fontFamily="sans-serif-medium"
+            android:text="@string/mono_gallery_title"
+            android:textColor="@color/mp_brand_text"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnCloseMonoGallery"
+            style="@style/MonoPinkButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:fontFamily="sans-serif-medium"
+            android:minWidth="0dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/close"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </RelativeLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -22,18 +50,26 @@
 
         <Button
             android:id="@+id/btnMonoTabLocal"
+            style="@style/MonoPinkButton"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="44dp"
             android:layout_weight="1"
-            android:text="Local" />
+            android:background="@drawable/mono_tab_selected"
+            android:text="Local" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/btnMonoTabServer"
+            style="@style/MonoPinkButtonSecondary"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="44dp"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:text="Server" />
+            android:background="@drawable/mono_tab_normal"
+            android:text="Server" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
     </LinearLayout>
 
     <FrameLayout
@@ -58,23 +94,30 @@
             android:gravity="center"
             android:padding="24dp"
             android:text="@string/mono_gallery_empty"
+            android:textColor="@color/mp_brand_text_muted"
             android:textSize="16sp"
-            android:visibility="gone" />
+            android:visibility="gone" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <ProgressBar
             android:id="@+id/progressMonoGallery"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center" />
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/mp_brand_primary" />
     </FrameLayout>
 
     <Button
         android:id="@+id/btnLoadMoreMonoGallery"
+        style="@style/MonoPinkButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="8dp"
         android:minWidth="110dp"
         android:minHeight="44dp"
-        android:text="@string/load_more" />
+        android:text="@string/load_more" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 </LinearLayout>

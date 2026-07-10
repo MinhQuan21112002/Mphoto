@@ -3,6 +3,8 @@ package com.sdk.esc;
 import com.mphoto.mono.R;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -101,6 +103,8 @@ public class Activity_Camera2 extends AppCompatActivity {
     public Handler handler;
     // Button cho capture ảnh
     private ImageView clickButton;
+    private ObjectAnimator clickButtonBlinkAnimator;
+    private final Runnable deferredOpenCameraRunnable = this::openCameraIfReady;
     // preview camera
     private TextureView textureView;
     private ImageView imgFrame;
@@ -132,6 +136,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     int currentIndex;
     List<String> bitmapList;
     private int clickCount = 0;
+    private int hideClickCount = 0;
 
     private GestureDetector gestureDetector;
     List<String> bitmapListImageView2;
@@ -167,6 +172,8 @@ public class Activity_Camera2 extends AppCompatActivity {
             finish();
             return;
         }
+
+        MonoGalleryCleanup.runInBackground(this);
 
         if (OpenCVLoader.initDebug()) {
             Log.d("OpenCV", "OpenCV successfully loaded!");
@@ -239,6 +246,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         countdown.setVisibility(View.INVISIBLE);
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
+        applyClickButtonHiddenState();
 
         gestureDetector = new GestureDetector(this, new GestureListener());
         textureView.setOnTouchListener((v, event) -> gestureDetector.onTouchEvent(event));
@@ -263,6 +271,7 @@ public class Activity_Camera2 extends AppCompatActivity {
                 startCountdown();
                 textureView.setEnabled(false);
                 clickButton.setEnabled(false);
+                stopClickButtonBlink();
                 clickButton.setVisibility(View.INVISIBLE);
             }
         });
@@ -271,28 +280,21 @@ public class Activity_Camera2 extends AppCompatActivity {
             clickCount++;
 
             if (clickCount == 3) {
-                Intent intent2 = new Intent(Activity_Camera2.this, Activity_Camera2_Manual.class); // Chuyển đến SettingsActivity
-                startActivity(intent2); // Bắt đầu Activity mới
+                openManualActivity();
+                clickCount = 0;
             } else {
                 // Reset click count after a short delay or you can reset immediately
                 v.postDelayed(() -> clickCount = 0, 500); // Hoặc bạn có thể điều chỉnh thời gian delay
             }
         });
         hideLogoButton.setOnClickListener(v -> {
-            clickCount++;
-
-            if (clickCount == 3) {
-                // Toggle alpha (trong suốt) của clickButton
-                if (clickButton.getAlpha() == 1f) {
-                    clickButton.setAlpha(0f); // Ẩn đi nhưng vẫn chạm được
-                } else {
-                    clickButton.setAlpha(1f); // Hiện lại
-                }
-
-                clickCount = 0;
+            hideClickCount++;
+            if (hideClickCount >= 3) {
+                // Dùng pref, không dùng getAlpha() — alpha đang bị animator nhấp nháy
+                setClickButtonHidden(!isClickButtonHiddenPref());
+                hideClickCount = 0;
             } else {
-                // Reset click count nếu không đủ 3 lần trong khoảng thời gian nhất định
-                v.postDelayed(() -> clickCount = 0, 500);
+                v.postDelayed(() -> hideClickCount = 0, 500);
             }
         });
 
@@ -573,23 +575,9 @@ public class Activity_Camera2 extends AppCompatActivity {
         Bitmap flippedBitmap = Bitmap.createBitmap(enlargedBitmap, 0, 0,
                 enlargedBitmap.getWidth(), enlargedBitmap.getHeight(), matrix, true);
 
-        // Ảnh chính màu cho lưu: không qua processingImage (OpenCV xám) — cùng sharpen/sáng/tương phản
-        Bitmap colorForSave = imgSolve.processingImageColorForSave(
-                origin, dpi, 2.0f, lightValue1[0], contrast, 800);
-        Bitmap flippedColor;
-        if (colorForSave != null) {
-            Bitmap colorAligned = Bitmap.createScaledBitmap(colorForSave, newWidth, newHeight, true);
-            if (colorAligned != colorForSave) {
-                colorForSave.recycle();
-            }
-            Bitmap enlargedColor = Bitmap.createScaledBitmap(colorAligned, newWidth + compensation, newHeight + compensation, true);
-            if (enlargedColor != colorAligned) {
-                colorAligned.recycle();
-            }
-            flippedColor = Bitmap.createBitmap(enlargedColor, 0, 0,
-                    enlargedColor.getWidth(), enlargedColor.getHeight(), matrix, true);
-            enlargedColor.recycle();
-        } else {
+        // Upload/gallery: ảnh thô gốc (không sharpen/sáng/tương phản) + vẫn lật ngang cho khớp khung
+        Bitmap flippedColor = Utility.buildRawFlippedForUpload(origin, newWidth, newHeight, compensation, matrix);
+        if (flippedColor == null) {
             flippedColor = flippedBitmap;
         }
 
@@ -629,20 +617,21 @@ public class Activity_Camera2 extends AppCompatActivity {
 
         if (PrinterTestMode.isEnabled(this)) {
             try {
-                String fn = PrinterTestMode.newTestFileNameJpeg();
+                // Cùng folderId cho local + server (tránh lệch tên)
+                final String monoFolderName = generateMonoServerFolderId();
+                final String monoLocalPhotoName = monoFolderName + "_1.jpg";
                 Bitmap fullPage = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, 576);
                 if (fullPage == null) {
                     fullPage = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
                 }
-                MonoGallerySaver.saveBitmapToMonoFolder(this, fullPage, fn);
-                File tmp = PrinterTestMode.writeJpegToCacheDir(this, fullPage, fn);
+                MonoGallerySaver.saveBitmapToMonoFolder(this, fullPage, monoLocalPhotoName);
+                File tmp = PrinterTestMode.writeJpegToCacheDir(this, fullPage, monoLocalPhotoName);
                 if (fullPage != null && fullPage != combinedBitmap && fullPage != combinedBitmapColor) {
                     fullPage.recycle();
                 }
                 if (combinedBitmapColor != null) {
                     combinedBitmapColor.recycle();
                 }
-                final String monoFolderName = generateMonoServerFolderId();
                 if (isShowQrEnabled()) {
                     printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderName));
                 }
@@ -745,8 +734,69 @@ public class Activity_Camera2 extends AppCompatActivity {
             if (clickButton != null) {
                 clickButton.setEnabled(true);
                 clickButton.setVisibility(View.VISIBLE);
+                applyClickButtonHiddenState();
             }
         });
+    }
+
+    private void openManualActivity() {
+        MonoScreenSwitch.mark();
+        Intent intent = new Intent(this, Activity_Camera2_Manual.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        android.app.ActivityOptions options = android.app.ActivityOptions.makeCustomAnimation(
+                this, R.anim.mono_activity_enter, R.anim.mono_activity_exit);
+        startActivity(intent, options.toBundle());
+    }
+
+    private boolean isClickButtonHiddenPref() {
+        return getSharedPreferences("settings", MODE_PRIVATE).getBoolean("click_button_hidden", false);
+    }
+
+    private void setClickButtonHidden(boolean hidden) {
+        getSharedPreferences("settings", MODE_PRIVATE)
+                .edit()
+                .putBoolean("click_button_hidden", hidden)
+                .apply();
+        applyClickButtonHiddenState();
+    }
+
+    private void applyClickButtonHiddenState() {
+        if (clickButton == null) {
+            return;
+        }
+        if (isClickButtonHiddenPref()) {
+            stopClickButtonBlink();
+            clickButton.setAlpha(0f);
+        } else {
+            clickButton.setAlpha(1f);
+            startClickButtonBlink();
+        }
+    }
+
+    private void startClickButtonBlink() {
+        if (clickButton == null || isClickButtonHiddenPref()) {
+            return;
+        }
+        if (clickButton.getVisibility() != View.VISIBLE || !clickButton.isEnabled()) {
+            return;
+        }
+        if (clickButtonBlinkAnimator != null && clickButtonBlinkAnimator.isRunning()) {
+            return;
+        }
+        stopClickButtonBlink();
+        clickButton.setAlpha(1f);
+        clickButtonBlinkAnimator = ObjectAnimator.ofFloat(clickButton, View.ALPHA, 1f, 0.35f);
+        clickButtonBlinkAnimator.setDuration(700);
+        clickButtonBlinkAnimator.setRepeatMode(ValueAnimator.REVERSE);
+        clickButtonBlinkAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        clickButtonBlinkAnimator.start();
+    }
+
+    private void stopClickButtonBlink() {
+        if (clickButtonBlinkAnimator != null) {
+            clickButtonBlinkAnimator.cancel();
+            clickButtonBlinkAnimator = null;
+        }
     }
 
     /** Upload server trên luồng riêng — không chặn hàng đợi in. */
@@ -1325,20 +1375,41 @@ public class Activity_Camera2 extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        final boolean softSwitch = MonoScreenSwitch.consumeSoftResume();
         MonoDriveServerSync.requestSyncIfLoggedIn(this);
+        applyClickButtonHiddenState();
         startBackgroundThread();
-        if (textureView.isAvailable()) {
-            openCamera();
+        if (textureView != null) {
+            textureView.removeCallbacks(deferredOpenCameraRunnable);
+        }
+        if (softSwitch && textureView != null) {
+            // Cho hiệu ứng chuyển màn chạy trước, rồi mới mở camera
+            textureView.postDelayed(deferredOpenCameraRunnable, 300);
         } else {
-            textureView.setSurfaceTextureListener(textureListener);
+            openCameraIfReady();
         }
     }
     @Override
     protected void onPause() {
         Log.e(TAG, "onPause");
+        stopClickButtonBlink();
+        if (textureView != null) {
+            textureView.removeCallbacks(deferredOpenCameraRunnable);
+        }
         //closeCamera();
         stopBackgroundThread();
         super.onPause();
+    }
+
+    private void openCameraIfReady() {
+        if (isFinishing() || textureView == null) {
+            return;
+        }
+        if (textureView.isAvailable()) {
+            openCamera();
+        } else {
+            textureView.setSurfaceTextureListener(textureListener);
+        }
     }
     private void save(byte[] bytes) throws Exception {
         // Tạo tệp trong thư mục cache của ứng dụng
@@ -1360,6 +1431,7 @@ public class Activity_Camera2 extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        stopClickButtonBlink();
         executorService.shutdownNow();
         uploadExecutorService.shutdownNow();
         super.onDestroy();

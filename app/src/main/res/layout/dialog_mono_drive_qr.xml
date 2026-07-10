@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="@drawable/mono_dialog_panel"
     android:gravity="center_horizontal"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="20dp">
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
         android:text="@string/mono_gallery_qr_tap_to_open"
-        android:textSize="14sp" />
+        android:textColor="@color/mp_brand_text"
+        android:textSize="14sp"
+        android:textStyle="bold" 
+        android:fontFamily="sans-serif-medium"/>
 
     <FrameLayout
         android:layout_width="wrap_content"
@@ -24,17 +29,19 @@
             android:id="@+id/progressMonoDriveQr"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center" />
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/mp_brand_primary" />
 
         <ImageView
             android:id="@+id/imageMonoDriveQr"
             android:layout_width="240dp"
             android:layout_height="240dp"
             android:layout_gravity="center"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="@drawable/mono_edittext"
             android:clickable="true"
             android:contentDescription="@string/mono_gallery_open_drive_link"
             android:focusable="true"
+            android:padding="8dp"
             android:scaleType="fitCenter"
             android:visibility="gone" />
     </FrameLayout>

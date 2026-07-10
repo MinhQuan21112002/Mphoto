@@ -16,6 +16,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -364,6 +368,135 @@ public class ApiService {
 
     public static JSONArray getMonoAllGalleryIds(String token) throws Exception {
         return getJsonArrayAuthed("/mono-results/all-gallery-ids", token);
+    }
+
+    /** Kết quả {@code POST /mono-results/delete-galleries} — giống Pro {@code delete-galleries}. */
+    public static final class MonoDeleteGalleriesResult {
+        public final Set<String> deleted = new HashSet<>();
+        public final Set<String> skipped = new HashSet<>();
+        public final int failedCount;
+
+        MonoDeleteGalleriesResult(Set<String> deleted, Set<String> skipped, int failedCount) {
+            if (deleted != null) {
+                this.deleted.addAll(deleted);
+            }
+            if (skipped != null) {
+                this.skipped.addAll(skipped);
+            }
+            this.failedCount = failedCount;
+        }
+    }
+
+    /**
+     * Xóa nhiều gallery Mono trên server (Firebase + DB) — một request.
+     * {@code POST /mono-results/delete-galleries} body {@code { galleryIds: string[] }}.
+     */
+    public static MonoDeleteGalleriesResult deleteMonoGalleries(String token, List<String> galleryIds)
+        throws Exception {
+        if (token == null || token.isEmpty()) {
+            throw new Exception("Thiếu token");
+        }
+        if (galleryIds == null || galleryIds.isEmpty()) {
+            return new MonoDeleteGalleriesResult(null, null, 0);
+        }
+
+        JSONArray idsJson = new JSONArray();
+        for (String id : galleryIds) {
+            if (id != null) {
+                String t = id.trim();
+                if (!t.isEmpty()) {
+                    idsJson.put(t);
+                }
+            }
+        }
+        if (idsJson.length() == 0) {
+            return new MonoDeleteGalleriesResult(null, null, 0);
+        }
+
+        JSONObject body = new JSONObject();
+        body.put("galleryIds", idsJson);
+
+        URL url = new URL(BASE_URL + "/mono-results/delete-galleries");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + token);
+        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(300000);
+
+        byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(bytes);
+        }
+
+        int code = conn.getResponseCode();
+        java.io.InputStream in = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        StringBuilder sb = new StringBuilder();
+        if (in != null) {
+            try (java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    sb.append(line);
+                }
+            }
+        }
+        conn.disconnect();
+
+        if (code < 200 || code >= 300) {
+            throw new Exception("Xóa batch Mono lỗi HTTP " + code + ": " + sb);
+        }
+
+        Set<String> deleted = new HashSet<>();
+        Set<String> skipped = new HashSet<>();
+        int failedCount = 0;
+        String raw = sb.toString().trim();
+        if (!raw.isEmpty()) {
+            JSONObject res = new JSONObject(raw);
+            JSONArray deletedArr = res.optJSONArray("deleted");
+            if (deletedArr != null) {
+                for (int i = 0; i < deletedArr.length(); i++) {
+                    String id = deletedArr.optString(i, "").trim();
+                    if (!id.isEmpty()) {
+                        deleted.add(id);
+                    }
+                }
+            }
+            JSONArray skippedArr = res.optJSONArray("skipped");
+            if (skippedArr != null) {
+                for (int i = 0; i < skippedArr.length(); i++) {
+                    String id = skippedArr.optString(i, "").trim();
+                    if (!id.isEmpty()) {
+                        skipped.add(id);
+                    }
+                }
+            }
+            JSONArray failedArr = res.optJSONArray("failed");
+            if (failedArr != null) {
+                failedCount = failedArr.length();
+            }
+        }
+        return new MonoDeleteGalleriesResult(deleted, skipped, failedCount);
+    }
+
+    /**
+     * Xóa một gallery Mono — wrapper gọi batch (giữ tương thích chỗ gọi cũ).
+     */
+    public static boolean deleteMonoGallery(String token, String folderId) {
+        if (token == null || token.isEmpty() || folderId == null || folderId.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            List<String> one = new ArrayList<>();
+            one.add(folderId.trim());
+            MonoDeleteGalleriesResult r = deleteMonoGalleries(token, one);
+            return r.deleted.contains(folderId.trim());
+        } catch (Exception e) {
+            Log.e(TAG, "deleteMonoGallery " + folderId, e);
+            return false;
+        }
     }
 
     private static void writeFormField(DataOutputStream out, String boundary, String name, String value) throws Exception {

@@ -20,6 +20,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
+import androidx.core.content.ContextCompat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
@@ -167,6 +168,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     /** Ảnh mới nhất trong thư mục M-Photo Mono (cạnh nút next khung). */
     ImageView imageMonoLatestThumb;
     private final Runnable monoFolderThumbRefreshRetry = () -> refreshMonoFolderThumbnail();
+    private final Runnable deferredOpenCameraRunnable = this::openCameraIfReady;
     boolean havingUsb=false;
     Button decrease;
     Button increase;
@@ -203,9 +205,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             return;
         }
 
+        MonoGalleryCleanup.runInBackground(this);
+
         //initialize the interface
 
         setContentView(R.layout.activity_camera2_manual);
+        GlassDialogHelper.applyPinkSystemBars(this);
         buttonUp=findViewById(R.id.button_up);
         buttonDown=findViewById(R.id.button_down);
         buttonList=findViewById(R.id.button_list);
@@ -244,15 +249,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         counterTime=sharedPreferences.getInt("counterTime", 1);
 
-        btnChangeLanguage.setOnClickListener(v -> {
-            final String[] languages = AppLanguages.nativeDisplayLabels();
-            AlertDialog.Builder builder = new AlertDialog.Builder(Activity_Camera2_Manual.this);
-            builder.setTitle(R.string.login_select_language_title);
-            builder.setItems(languages, (dialog, which) -> {
-                changeLanguage(AppLanguages.CODES[which]);
-            });
-            builder.show();
-        });
+        btnChangeLanguage.setOnClickListener(v -> showLanguagePickerDialog());
 
         //xu ly anh phu -------------------------------------------------------------
         SharedPreferences sharedPreferences2 = getSharedPreferences("MyAppPrefs2", MODE_PRIVATE);
@@ -361,10 +358,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         settingButton.setOnClickListener(v -> showSettingDialog());
         bindIsoExposurePanel();
         // function for behavior of clicking back Button
-        backButton.setOnClickListener(v -> {
-            Intent intent2 = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class); // Chuyển đến SettingsActivity
-            startActivity(intent2); // Bắt đầu Activity mới
-        });
+        backButton.setOnClickListener(v -> returnToMainActivity());
 
         //Add image Frame and edit
         buttonList.setOnClickListener(v -> showImageFrameDialog());
@@ -455,6 +449,32 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             monoSizeRef.getViewTreeObserver().addOnGlobalLayoutListener(this::onMonoPreviewFlexLayout);
             monoSizeRef.post(this::applyMonoPreviewFlexLayout);
         }
+    }
+
+    private void showLanguagePickerDialog() {
+        View root = getLayoutInflater().inflate(R.layout.dialog_language, null);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(root)
+                .create();
+        View.OnClickListener pick = v -> {
+            String code;
+            int id = v.getId();
+            if (id == R.id.btnLanguageEn) {
+                code = "en";
+            } else if (id == R.id.btnLanguageKo) {
+                code = "ko";
+            } else {
+                code = "vi";
+            }
+            dialog.dismiss();
+            changeLanguage(code);
+        };
+        root.findViewById(R.id.btnLanguageVi).setOnClickListener(pick);
+        root.findViewById(R.id.btnLanguageEn).setOnClickListener(pick);
+        root.findViewById(R.id.btnLanguageKo).setOnClickListener(pick);
+        root.findViewById(R.id.btnCloseLanguage).setOnClickListener(v -> dialog.dismiss());
+        dialog.show();
+        GlassDialogHelper.applyGlassWindow(dialog);
     }
 
     public void changeLanguage(String langCode) {
@@ -627,6 +647,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
     /** Dialog ảnh phụ / khung: nửa phải màn hình. */
     private void applyRightHalfDialogLayout(@NonNull AlertDialog dialog) {
+        GlassDialogHelper.applyGlassWindow(dialog);
         Window window = dialog.getWindow();
         if (window == null) {
             return;
@@ -1407,127 +1428,127 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         if (isoText8 != null) {
             isoText8.setText(ISO_LEVELS[7]);
             if (ISO_LEVELS[7].equals(isovalue)) {
-                isoText8.setBackgroundColor(Color.GRAY);
+                isoText8.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText11 != null) {
             exposureText11.setText(EXPOSURE_LEVELS_LABEL[12]);
             if (EXPO_US[12].equals(exposurevalue)) {
-                exposureText11.setBackgroundColor(Color.GRAY);
+                exposureText11.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText1 != null) {
             isoText1.setText(ISO_LEVELS[0]);
             if (ISO_LEVELS[0].equals(isovalue)) {
-                isoText1.setBackgroundColor(Color.GRAY);
+                isoText1.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText1 != null) {
             exposureText1.setText(EXPOSURE_LEVELS_LABEL[0]);
             if (EXPO_US[0].equals(exposurevalue)) {
-                exposureText1.setBackgroundColor(Color.GRAY);
+                exposureText1.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText2 != null) {
             isoText2.setText(ISO_LEVELS[1]);
             if (ISO_LEVELS[1].equals(isovalue)) {
-                isoText2.setBackgroundColor(Color.GRAY);
+                isoText2.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText2 != null) {
             exposureText2.setText(EXPOSURE_LEVELS_LABEL[1]);
             if (EXPO_US[1].equals(exposurevalue)) {
-                exposureText2.setBackgroundColor(Color.GRAY);
+                exposureText2.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText3 != null) {
             isoText3.setText(ISO_LEVELS[2]);
             if (ISO_LEVELS[2].equals(isovalue)) {
-                isoText3.setBackgroundColor(Color.GRAY);
+                isoText3.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText3 != null) {
             exposureText3.setText(EXPOSURE_LEVELS_LABEL[2]);
             if (EXPO_US[2].equals(exposurevalue)) {
-                exposureText3.setBackgroundColor(Color.GRAY);
+                exposureText3.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText4 != null) {
             isoText4.setText(ISO_LEVELS[3]);
             if (ISO_LEVELS[3].equals(isovalue)) {
-                isoText4.setBackgroundColor(Color.GRAY);
+                isoText4.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText4 != null) {
             exposureText4.setText(EXPOSURE_LEVELS_LABEL[3]);
             if (EXPO_US[3].equals(exposurevalue)) {
-                exposureText4.setBackgroundColor(Color.GRAY);
+                exposureText4.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText5 != null) {
             isoText5.setText(ISO_LEVELS[4]);
             if (ISO_LEVELS[4].equals(isovalue)) {
-                isoText5.setBackgroundColor(Color.GRAY);
+                isoText5.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText5 != null) {
             exposureText5.setText(EXPOSURE_LEVELS_LABEL[4]);
             if (EXPO_US[4].equals(exposurevalue)) {
-                exposureText5.setBackgroundColor(Color.GRAY);
+                exposureText5.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText6 != null) {
             isoText6.setText(ISO_LEVELS[5]);
             if (ISO_LEVELS[5].equals(isovalue)) {
-                isoText6.setBackgroundColor(Color.GRAY);
+                isoText6.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText6 != null) {
             exposureText6.setText(EXPOSURE_LEVELS_LABEL[5]);
             if (EXPO_US[5].equals(exposurevalue)) {
-                exposureText6.setBackgroundColor(Color.GRAY);
+                exposureText6.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (isoText7 != null) {
             isoText7.setText(ISO_LEVELS[6]);
             if (ISO_LEVELS[6].equals(isovalue)) {
-                isoText7.setBackgroundColor(Color.GRAY);
+                isoText7.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText7 != null) {
             exposureText7.setText(EXPOSURE_LEVELS_LABEL[6]);
             if (EXPO_US[6].equals(exposurevalue)) {
-                exposureText7.setBackgroundColor(Color.GRAY);
+                exposureText7.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText8 != null) {
             exposureText8.setText(EXPOSURE_LEVELS_LABEL[7]);
             if (EXPO_US[7].equals(exposurevalue)) {
-                exposureText8.setBackgroundColor(Color.GRAY);
+                exposureText8.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText9 != null) {
             exposureText9.setText(EXPOSURE_LEVELS_LABEL[8]);
             if (EXPO_US[8].equals(exposurevalue)) {
-                exposureText9.setBackgroundColor(Color.GRAY);
+                exposureText9.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText10 != null) {
             exposureText10.setText(EXPOSURE_LEVELS_LABEL[11]);
             if (EXPO_US[11].equals(exposurevalue)) {
-                exposureText10.setBackgroundColor(Color.GRAY);
+                exposureText10.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText12 != null) {
             exposureText12.setText(EXPOSURE_LEVELS_LABEL[9]);
             if (EXPO_US[9].equals(exposurevalue)) {
-                exposureText12.setBackgroundColor(Color.GRAY);
+                exposureText12.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
         if (exposureText14 != null) {
             exposureText14.setText(EXPOSURE_LEVELS_LABEL[10]);
             if (EXPO_US[10].equals(exposurevalue)) {
-                exposureText14.setBackgroundColor(Color.GRAY);
+                exposureText14.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
             }
         }
     }
@@ -1627,6 +1648,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             btnInstallUpdate.setOnClickListener(v -> SoftwareUpdateHelper.tryInstallPending(Activity_Camera2_Manual.this));
         }
         dialog1.show();
+        GlassDialogHelper.applyGlassWindow(dialog1);
     }
 
     private void bindAppUpdateFileLabel(@Nullable TextView tv) {
@@ -1786,6 +1808,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             .setPositiveButton(R.string.close, (d, w) -> d.dismiss())
             .create();
         dlg.show();
+        GlassDialogHelper.applyGlassWindow(dlg);
 
         final Activity_Camera2_Manual activity = this;
         executorService.execute(() -> {
@@ -1843,8 +1866,20 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             } else {
                 if (empty != null) empty.setVisibility(View.GONE);
             }
-            if (btnTabLocal != null) btnTabLocal.setEnabled(currentTab[0] != 0);
-            if (btnTabServer != null) btnTabServer.setEnabled(currentTab[0] != 1);
+            if (btnTabLocal != null) {
+                btnTabLocal.setEnabled(true);
+                btnTabLocal.setBackgroundResource(
+                        currentTab[0] == 0 ? R.drawable.mono_tab_selected : R.drawable.mono_tab_normal);
+                btnTabLocal.setTextColor(ContextCompat.getColor(this,
+                        currentTab[0] == 0 ? android.R.color.white : R.color.mp_brand_text));
+            }
+            if (btnTabServer != null) {
+                btnTabServer.setEnabled(true);
+                btnTabServer.setBackgroundResource(
+                        currentTab[0] == 1 ? R.drawable.mono_tab_selected : R.drawable.mono_tab_normal);
+                btnTabServer.setTextColor(ContextCompat.getColor(this,
+                        currentTab[0] == 1 ? android.R.color.white : R.color.mp_brand_text));
+            }
             if (btnLoadMore != null) {
                 if (currentVisible < src.size()) {
                     btnLoadMore.setVisibility(View.VISIBLE);
@@ -2038,10 +2073,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
         AlertDialog galleryDialog = new AlertDialog.Builder(this)
                 .setView(root)
-                .setNegativeButton(R.string.close, (d, w) -> d.dismiss())
                 .create();
+        Button btnCloseGallery = root.findViewById(R.id.btnCloseMonoGallery);
+        if (btnCloseGallery != null) {
+            btnCloseGallery.setOnClickListener(v -> galleryDialog.dismiss());
+        }
         galleryDialog.setOnDismissListener(d -> refreshMonoFolderThumbnail());
         galleryDialog.show();
+        GlassDialogHelper.applyGlassWindow(galleryDialog);
         Window w = galleryDialog.getWindow();
         if (w != null) {
             DisplayMetrics m = new DisplayMetrics();
@@ -2051,6 +2090,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     (int) (m.heightPixels * 0.8f)
             );
         }
+        // Gọi sau show/setLayout — một số máy mất cancel-outside nếu set trước
+        galleryDialog.setCancelable(true);
+        galleryDialog.setCanceledOnTouchOutside(true);
     }
 
     private void openMonoServerGalleryListDialog() {
@@ -2268,7 +2310,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             outer.width = w;
             outer.height = ViewGroup.LayoutParams.WRAP_CONTENT;
         }
-        outer.gravity = Gravity.CENTER;
+        outer.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         monoPreviewFlexContent.setLayoutParams(outer);
 
         LinearLayout.LayoutParams fp = (LinearLayout.LayoutParams) frameMonoSecond.getLayoutParams();
@@ -2461,22 +2503,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         Bitmap flippedBitmap = Bitmap.createBitmap(enlargedBitmap, 0, 0,
                 enlargedBitmap.getWidth(), enlargedBitmap.getHeight(), matrix, true);
 
-        Bitmap colorForSave = imgSolve.processingImageColorForSave(
-                origin, dpi, 1.5f, lightValue1[0], contrast, 800);
-        Bitmap flippedColor;
-        if (colorForSave != null) {
-            Bitmap colorAligned = Bitmap.createScaledBitmap(colorForSave, newWidth, newHeight, true);
-            if (colorAligned != colorForSave) {
-                colorForSave.recycle();
-            }
-            Bitmap enlargedColor = Bitmap.createScaledBitmap(colorAligned, newWidth + compensation, newHeight + compensation, true);
-            if (enlargedColor != colorAligned) {
-                colorAligned.recycle();
-            }
-            flippedColor = Bitmap.createBitmap(enlargedColor, 0, 0,
-                    enlargedColor.getWidth(), enlargedColor.getHeight(), matrix, true);
-            enlargedColor.recycle();
-        } else {
+        // Upload/gallery: ảnh thô gốc + khung (in vẫn dùng flippedBitmap đã xử lý)
+        Bitmap flippedColor = Utility.buildRawFlippedForUpload(origin, newWidth, newHeight, compensation, matrix);
+        if (flippedColor == null) {
             flippedColor = flippedBitmap;
         }
 
@@ -2518,21 +2547,22 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         btnPrint.setOnClickListener(v -> {
             try {
                 if (PrinterTestMode.isEnabled(Activity_Camera2_Manual.this)) {
-                    String fn = PrinterTestMode.newTestFileNameJpeg();
                     try {
+                        // Cùng folderId cho local + server (tránh lệch tên)
+                        final String monoFolderNameTest = generateMonoServerFolderId();
+                        final String monoLocalPhotoNameTest = monoFolderNameTest + "_1.jpg";
                         Bitmap fullPageT = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, 576);
                         if (fullPageT == null) {
                             fullPageT = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
                         }
-                        MonoGallerySaver.saveBitmapToMonoFolder(Activity_Camera2_Manual.this, fullPageT, fn);
-                        File tmp = PrinterTestMode.writeJpegToCacheDir(Activity_Camera2_Manual.this, fullPageT, fn);
+                        MonoGallerySaver.saveBitmapToMonoFolder(Activity_Camera2_Manual.this, fullPageT, monoLocalPhotoNameTest);
+                        File tmp = PrinterTestMode.writeJpegToCacheDir(Activity_Camera2_Manual.this, fullPageT, monoLocalPhotoNameTest);
                         if (fullPageT != null && fullPageT != combinedBitmap && fullPageT != combinedBitmapColor) {
                             fullPageT.recycle();
                         }
                         if (combinedBitmapColor != null) {
                             combinedBitmapColor.recycle();
                         }
-                        final String monoFolderNameTest = generateMonoServerFolderId();
                         if (isShowQrEnabled()) {
                             printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderNameTest));
                         }
@@ -3407,21 +3437,45 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        final boolean softSwitch = MonoScreenSwitch.consumeSoftResume();
         MonoDriveServerSync.requestSyncIfLoggedIn(this);
         startBackgroundThread();
+        if (textureView != null) {
+            textureView.removeCallbacks(deferredOpenCameraRunnable);
+        }
+        if (softSwitch && textureView != null) {
+            textureView.postDelayed(deferredOpenCameraRunnable, 300);
+            if (imageMonoLatestThumb != null) {
+                imageMonoLatestThumb.postDelayed(monoFolderThumbRefreshRetry, 350);
+            }
+        } else {
+            openCameraIfReady();
+            refreshMonoFolderThumbnail();
+        }
+    }
+    @Override
+    protected void onPause() {
+        Log.e(TAG, "onPause");
+        if (textureView != null) {
+            textureView.removeCallbacks(deferredOpenCameraRunnable);
+        }
+        if (imageMonoLatestThumb != null) {
+            imageMonoLatestThumb.removeCallbacks(monoFolderThumbRefreshRetry);
+        }
+        //closeCamera();
+        stopBackgroundThread();
+        super.onPause();
+    }
+
+    private void openCameraIfReady() {
+        if (isFinishing() || textureView == null) {
+            return;
+        }
         if (textureView.isAvailable()) {
             openCamera();
         } else {
             textureView.setSurfaceTextureListener(textureListener);
         }
-        refreshMonoFolderThumbnail();
-    }
-    @Override
-    protected void onPause() {
-        Log.e(TAG, "onPause");
-        //closeCamera();
-        stopBackgroundThread();
-        super.onPause();
     }
     private void save(byte[] bytes) throws Exception {
         // Tạo tệp trong thư mục cache của ứng dụng
@@ -3441,13 +3495,19 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         // Truyền đường dẫn của tệp cache cho hàm setPrintDialog2
         imageProcessing(file.getPath());
     }
+    /** Giữ Manual sống trên stack — lần sau vào lại không phải tạo mới (nhanh hơn). */
+    private void returnToMainActivity() {
+        MonoScreenSwitch.mark();
+        Intent intent = new Intent(this, Activity_Camera2.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        android.app.ActivityOptions options = android.app.ActivityOptions.makeCustomAnimation(
+                this, R.anim.mono_activity_pop_enter, R.anim.mono_activity_pop_exit);
+        startActivity(intent, options.toBundle());
+    }
+
     @Override
     public void onBackPressed() {
-        // Intent để chuyển từ ActivityCamera2Manual về ActivityCamera2
-        Intent intent = new Intent(Activity_Camera2_Manual.this, Activity_Camera2.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        startActivity(intent); // Bắt đầu ActivityCamera2
-        finish(); // Đóng ActivityCamera2Manual
+        returnToMainActivity();
     }
     @Override
     protected void onDestroy() {

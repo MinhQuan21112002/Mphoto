@@ -11,7 +11,7 @@
         android:id="@+id/imageCell"
         android:layout_width="match_parent"
         android:layout_height="200dp"
-        android:background="#22000000"
+        android:background="@color/mp_brand_soft"
         android:contentDescription="@string/mono_gallery_item"
         android:scaleType="fitCenter" />
 

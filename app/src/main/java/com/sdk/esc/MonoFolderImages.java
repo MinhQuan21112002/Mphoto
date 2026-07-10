@@ -183,9 +183,20 @@ public final class MonoFolderImages {
         return first.isEmpty() ? null : first.get(0);
     }
 
+    /** Toàn bộ gallery local (không giới hạn 120) — dùng cho dọn dẹp tự động. */
+    public static List<LocalGalleryItem> loadAllLocalGalleryItems(Context context) {
+        String folderName = getFolderName(context);
+        List<Uri> merged = listAllMergedUris(context, folderName);
+        return buildLocalGalleryItemsFromUris(context, merged);
+    }
+
     public static List<LocalGalleryItem> loadLocalGalleryItems(Context context) {
         String folderName = getFolderName(context);
         List<Uri> merged = listMergedUrisUpTo120(context, folderName);
+        return buildLocalGalleryItemsFromUris(context, merged);
+    }
+
+    private static List<LocalGalleryItem> buildLocalGalleryItemsFromUris(Context context, List<Uri> merged) {
         Map<String, LocalGalleryItem> byFolder = new HashMap<>();
         for (Uri uri : merged) {
             String name = resolveImageFileName(context, uri);
@@ -207,8 +218,6 @@ public final class MonoFolderImages {
                     folderId = dd + mm + yyyy + hhmmss + random;
                 }
             }
-            // Bỏ qua file local không theo naming gallery Mono (vd IMG_...),
-            // để tránh đánh dấu "chưa đồng bộ" sai.
             if (folderId == null || folderId.trim().isEmpty()) {
                 continue;
             }
@@ -230,6 +239,62 @@ public final class MonoFolderImages {
         List<LocalGalleryItem> out = new ArrayList<>(byFolder.values());
         out.sort((a, b) -> Long.compare(b.time, a.time));
         return out;
+    }
+
+    private static List<Uri> listAllMergedUris(Context context, String folderName) {
+        Map<String, DatedUri> byName = new HashMap<>();
+        addFilesFromDir(new File(MPhotoPublicStorage.getAppPublicRoot(), folderName), byName);
+        addFilesFromDir(new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), folderName), byName);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            addFromMediaStoreQUnbounded(context, folderName, byName);
+        }
+        List<DatedUri> list = new ArrayList<>(byName.values());
+        list.sort(Comparator.comparingLong((DatedUri d) -> d.time).reversed());
+        List<Uri> out = new ArrayList<>();
+        for (DatedUri d : list) {
+            out.add(d.uri);
+        }
+        return out;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void addFromMediaStoreQUnbounded(Context context, String folderName, Map<String, DatedUri> byName) {
+        String rel = Environment.DIRECTORY_PICTURES + "/" + folderName;
+        String relSlash = rel + "/";
+        ContentResolver r = context.getContentResolver();
+        String[] projection = {
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME,
+            MediaStore.Images.Media.DATE_MODIFIED
+        };
+        String sel = "(" + MediaStore.Images.Media.RELATIVE_PATH + " = ? OR "
+            + MediaStore.Images.Media.RELATIVE_PATH + " = ?)";
+        String[] args = { rel, relSlash };
+        String sort = MediaStore.Images.Media.DATE_MODIFIED + " DESC";
+        try (Cursor c = r.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, sel, args, sort)) {
+            if (c == null) {
+                return;
+            }
+            int idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID);
+            int nameCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
+            int dateCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED);
+            while (c.moveToNext()) {
+                long id = c.getLong(idCol);
+                String name = c.getString(nameCol);
+                long t = c.getLong(dateCol) * 1000L;
+                if (name == null) {
+                    continue;
+                }
+                Uri uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
+                DatedUri o = byName.get(name);
+                if (o == null || t > o.time) {
+                    byName.put(name, new DatedUri(t, uri));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "addFromMediaStoreQUnbounded", e);
+        }
     }
 
     public static File resolveFileFromUri(Context context, Uri uri, String fallbackName) {

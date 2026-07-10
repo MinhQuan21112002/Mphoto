@@ -1,40 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:padding="20dp"
+    android:background="@drawable/mono_dialog_panel"
+    android:gravity="center"
     android:orientation="vertical"
-    android:background="@android:color/white"
-    android:gravity="center">
-
+    android:padding="20dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
+        android:layout_marginTop="4dp"
         android:gravity="center"
         android:orientation="horizontal">
 
         <Button
             android:id="@+id/btnPickImage"
+            style="@style/MonoPinkButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/SelectImageFromGalery" />
+            android:minHeight="44dp"
+            android:text="@string/SelectImageFromGalery" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 
         <Button
             android:id="@+id/btnResyncMonoSubPhotos"
+            style="@style/MonoPinkButtonSecondary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:text="@string/mono_resync" />
+            android:minHeight="44dp"
+            android:text="@string/mono_resync" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
     </LinearLayout>
-
-<!--    <Button-->
-<!--        android:id="@+id/btnPickImageDrive"-->
-<!--        android:layout_width="wrap_content"-->
-<!--        android:layout_height="wrap_content"-->
-<!--        android:layout_marginTop="10dp"-->
-<!--        android:text="Chọn ảnh từ Google Drive" />-->
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewImages"
@@ -45,38 +46,13 @@
 
     <Button
         android:id="@+id/btnLoadMoreSub"
+        style="@style/MonoPinkButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
         android:minWidth="110dp"
         android:minHeight="44dp"
-        android:layout_marginTop="10dp"
-        android:text="@string/load_more" />
+        android:text="@string/load_more" 
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"/>
 </LinearLayout>
-
-
-
-    <!--Phien ban telclast-->
-    <!--    <?xml version="1.0" encoding="utf-8"?>-->
-    <!--<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"-->
-    <!--android:layout_width="match_parent"-->
-    <!--android:layout_height="wrap_content"-->
-    <!--android:orientation="vertical"-->
-    <!--android:background="@android:color/white"-->
-    <!--    >-->
-
-
-
-    <!--<Button-->
-    <!--    android:id="@+id/btnPickImage"-->
-    <!--    android:layout_width="wrap_content"-->
-    <!--    android:layout_height="wrap_content"-->
-    <!--    android:text="Chọn ảnh từ thư viện"-->
-    <!--    android:layout_marginTop="10dp"/>-->
-
-    <!--<androidx.recyclerview.widget.RecyclerView-->
-    <!--    android:id="@+id/recyclerViewImages"-->
-    <!--    android:layout_width="match_parent"-->
-    <!--    android:layout_height="wrap_content"-->
-    <!--    android:layout_marginTop="16dp"-->
-    <!--    android:layout_marginStart="50dp"/>-->
-    <!--</LinearLayout>-->
