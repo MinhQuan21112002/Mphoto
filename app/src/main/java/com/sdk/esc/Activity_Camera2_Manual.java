@@ -62,13 +62,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.AdapterView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
@@ -1601,18 +1604,30 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     prefSettings.edit().putBoolean("Download", isChecked).apply());
             setCloudControlEnabled(swDownload);
         }
+        Spinner spinnerPrintMode = dialogView.findViewById(R.id.spinnerPrintBitmapMode);
+        if (spinnerPrintMode != null) {
+            ArrayAdapter<String> modeAdapter = new ArrayAdapter<>(
+                    this,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    PrintBitmapMode.labels(this));
+            spinnerPrintMode.setAdapter(modeAdapter);
+            spinnerPrintMode.setSelection(PrintBitmapMode.indexOf(PrintBitmapMode.get(this)));
+            spinnerPrintMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    PrintBitmapMode.set(Activity_Camera2_Manual.this, PrintBitmapMode.modeAt(position));
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {
+                }
+            });
+        }
         Button btnLogout = dialogView.findViewById(R.id.button_logout);
         if (btnLogout != null) {
             boolean guestMode = TokenManager.getInstance(this).isGuestMode();
             btnLogout.setText(guestMode ? R.string.login_button : R.string.logout);
-            btnLogout.setOnClickListener(v -> {
-                dialog1.dismiss();
-                TokenManager.getInstance(Activity_Camera2_Manual.this).clearToken();
-                Intent i = new Intent(Activity_Camera2_Manual.this, LoginActivity.class);
-                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivity(i);
-                finish();
-            });
+            btnLogout.setOnClickListener(v -> showLogoutConfirmDialog(dialog1, guestMode));
         }
         TextView textAppUpdateFile = dialogView.findViewById(R.id.text_app_update_file);
         bindAppUpdateFileLabel(textAppUpdateFile);
@@ -1649,6 +1664,45 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
         dialog1.show();
         GlassDialogHelper.applyGlassWindow(dialog1);
+    }
+
+    /** Dialog xác nhận đăng xuất / chuyển login — cùng tone glass với settings. */
+    private void showLogoutConfirmDialog(@Nullable AlertDialog settingsDialog, boolean guestMode) {
+        View root = getLayoutInflater().inflate(R.layout.dialog_logout_confirm, null);
+        TextView title = root.findViewById(R.id.text_logout_confirm_title);
+        TextView message = root.findViewById(R.id.text_logout_confirm_message);
+        Button btnCancel = root.findViewById(R.id.button_logout_cancel);
+        Button btnConfirm = root.findViewById(R.id.button_logout_confirm);
+        if (title != null) {
+            title.setText(guestMode ? R.string.login_confirm_title : R.string.logout_confirm_title);
+        }
+        if (message != null) {
+            message.setText(guestMode ? R.string.login_confirm_message : R.string.logout_confirm_message);
+        }
+        if (btnConfirm != null) {
+            btnConfirm.setText(guestMode ? R.string.login_confirm_yes : R.string.logout_confirm_yes);
+        }
+        AlertDialog confirm = new AlertDialog.Builder(this)
+                .setView(root)
+                .create();
+        if (btnCancel != null) {
+            btnCancel.setOnClickListener(v -> confirm.dismiss());
+        }
+        if (btnConfirm != null) {
+            btnConfirm.setOnClickListener(v -> {
+                confirm.dismiss();
+                if (settingsDialog != null && settingsDialog.isShowing()) {
+                    settingsDialog.dismiss();
+                }
+                TokenManager.getInstance(Activity_Camera2_Manual.this).clearToken();
+                Intent i = new Intent(Activity_Camera2_Manual.this, LoginActivity.class);
+                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(i);
+                finish();
+            });
+        }
+        confirm.show();
+        GlassDialogHelper.applyGlassWindow(confirm);
     }
 
     private void bindAppUpdateFileLabel(@Nullable TextView tv) {
@@ -1982,13 +2036,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                             runOnUiThread(() -> Toast.makeText(Activity_Camera2_Manual.this, "Không đọc được ảnh để in", Toast.LENGTH_SHORT).show());
                             return;
                         }
-                        printImage(bm, 0, 576, false, 1);
+                        printImage(bm, 0, 576, false, PrintBitmapMode.get(Activity_Camera2_Manual.this));
                         if (isShowQrEnabled()) {
                             String qrUrl = buildMonoServerGalleryUrl(item.folderId);
                             printMonoDriveQrForUploadedFileLink(qrUrl);
                         } else {
                             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-                            printEmptyAndCut(0, 150, false, 1, end);
+                            printEmptyAndCut(0, 150, false, PrintBitmapMode.get(Activity_Camera2_Manual.this), end);
                         }
                     } catch (Throwable e) {
                         Log.e(TAG, "print mono gallery item", e);
@@ -2416,12 +2470,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         int dpi = origin.getDensity();
         if (dpi == 0) dpi = 203; // 기본 DPI 설정
         Bitmap resizedBitmap = imgSolve.processingImage(origin);
-        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.5f));
+        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.2f));
 
         bmp.get().setDensity(dpi);
 
-        float contrast = 1.4f;
-        int light = 0;
+        float contrast = 1.5f;
+        int light = 5;
         int[] lightValue1 = {light}; // Adjust brightness based on SeekBar progress
         float[] contrastValue = {contrast};
         Bitmap[] adjustedBitmap2 = {null};
@@ -2450,7 +2504,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         } else {
             bitmapFrame = bitmapFrameNull;
         }
-        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame, 800);
+        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame, 1152);
 
         //Xu ly anh phu
         @SuppressLint("UseCompatLoadingForDrawables")
@@ -2480,7 +2534,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 // Bitmap đã xử lý (adjustedBitmap2[0])
         Bitmap processedBitmap2 = adjustedBitmap2[0];
         //processedBitmap2=imgSolve.cropLeftRightToSquare(processedBitmap2);
-        processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
+        processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,1152); // 2× độ rộng in dither 576
         int compensation=0;
 // Phóng to processedBitmap2
 
@@ -2624,16 +2678,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 }
                 scheduleMonoFolderThumbnailUpdate();
                 PrintNumber();
+                final int printMode = PrintBitmapMode.get(Activity_Camera2_Manual.this);
                 printImage(
                         combinedBitmap,
                         0,
                         PRINT_THREE_INCH , false,
-                        1
+                        printMode
                 );
 
 
 
-                printImage2(image, 0, 576, false, 1);
+                printImage2(image, 0, 576, false, printMode);
 
                 final File fCombinedDrive = combinedFileForDrive;
                 final boolean showQr = isShowQrEnabled();
@@ -2645,7 +2700,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     }
                 } else {
                     Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2_Manual.this.getResources(), R.drawable.end);
-                    printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+                    printEmptyAndCut(0, 150, false, printMode, bitmapPrint);
                 }
                 scheduleServerUpload(fCombinedDrive, monoFolderName);
                 imgSolve.clearCache();
@@ -2856,7 +2911,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
 
 
             try {
-                //    Print.SetPrintDensity((byte)4);
+                // Dither (sype=1): mật độ mực vừa phải — tránh quá nhạt trên nhiệt
+                Print.SetPrintDensity((byte) 4);
                 Print.setPrintResolution(203,203);
                 Print.PrintBitmap(bitmapPrint, sype, light);  // In ảnh
 
@@ -2865,7 +2921,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 Log.w(TAG, "printImage first attempt failed, fallback print", e);
                 try {
                     // Fallback for some printer firmwares that fail with setPrintResolution/light params.
-                    Print.PrintBitmap(bitmapPrint, 1, 0);
+                    Print.PrintBitmap(bitmapPrint, PrintBitmapMode.get(Activity_Camera2_Manual.this), 0);
                 } catch (Exception ex) {
                     notifyPrintFailure(ex);
                 }
@@ -2883,23 +2939,25 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
      * (tránh khách quét thấy ảnh user khác trong cùng folder).
      */
     private void printMonoDriveQrForUploadedFileLink(@Nullable String driveFileLink) {
+        final int printMode = PrintBitmapMode.get(this);
         if (driveFileLink == null || driveFileLink.isEmpty()) {
             Log.e(TAG, "Không có link file Drive — in kết thúc, bỏ QR.");
             Bitmap bitmapPrint = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+            printEmptyAndCut(0, 150, false, printMode, bitmapPrint);
             return;
         }
         GoogleDriveService driveService = new GoogleDriveService(this);
         Bitmap qr = driveService.generateQRCodeForUrl(driveFileLink);
         if (qr != null) {
             Log.d(TAG, "QR từ link file: " + driveFileLink);
-            printQR(qr, 0, 150, true, 1);
+            // QR dùng Threshold để dễ quét; ảnh chính dùng chế độ user chọn
+            printQR(qr, 0, 150, true, PrintBitmapMode.THRESHOLD);
             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-            printEmptyAndCut(0, 140, false, 1, end);
+            printEmptyAndCut(0, 140, false, printMode, end);
         } else {
             Log.e(TAG, "Không tạo được QR từ link file");
             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1, end);
+            printEmptyAndCut(0, 150, false, printMode, end);
         }
     }
 
@@ -3251,7 +3309,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     largestSize = size;
                 }
             }
-            ImageReader reader = ImageReader.newInstance(480,640, ImageFormat.JPEG, 1);
+            // In dither 576px: chụp full JPEG (không cố định 480x640 — phóng to làm ảnh in rất xấu)
+            ImageReader reader = ImageReader.newInstance(
+                    largestSize.getWidth(), largestSize.getHeight(), ImageFormat.JPEG, 1);
 
 
             // Thiết lập các Surface để sử dụng với camera

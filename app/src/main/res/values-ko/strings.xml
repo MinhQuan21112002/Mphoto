@@ -22,6 +22,10 @@
     <string name="english">영어</string>
     <string name="korean">한국어</string>
     <string name="DownloadImage">QR 코드 인쇄</string>
+    <string name="print_bitmap_mode">비트맵 인쇄 모드</string>
+    <string name="print_mode_threshold">0 — 임계값 (Threshold)</string>
+    <string name="print_mode_dither">1 — Dither / Shake (권장)</string>
+    <string name="print_mode_bayer">2 — Bayer (매트릭스)</string>
 
     <string name="login_screen_title">M-PHOTO MONO</string>
     <string name="login_email_label">이메일</string>
@@ -40,5 +44,11 @@
     <string name="login_connection_error">연결 오류. 다시 시도하세요.</string>
     <string name="login_guest_mode_hint">게스트 모드: 촬영 및 로컬 인쇄만 가능. 서버 동기화는 로그인이 필요합니다.</string>
     <string name="logout">로그아웃</string>
+    <string name="logout_confirm_title">로그아웃 확인</string>
+    <string name="logout_confirm_message">정말 로그아웃하시겠습니까?</string>
+    <string name="logout_confirm_yes">로그아웃</string>
+    <string name="login_confirm_title">로그인 확인</string>
+    <string name="login_confirm_message">로그인 화면으로 이동할까요?</string>
+    <string name="login_confirm_yes">로그인</string>
 
 </resources>

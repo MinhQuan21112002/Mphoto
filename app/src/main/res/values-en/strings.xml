@@ -22,6 +22,10 @@
     <string name="english">English</string>
     <string name="korean">Korean</string>
     <string name="DownloadImage">Print QR code</string>
+    <string name="print_bitmap_mode">Bitmap print mode</string>
+    <string name="print_mode_threshold">0 — Threshold</string>
+    <string name="print_mode_dither">1 — Dither / Shake (recommended)</string>
+    <string name="print_mode_bayer">2 — Bayer (ordered)</string>
 
     <string name="login_screen_title">M-PHOTO MONO</string>
     <string name="login_email_label">Email</string>
@@ -40,5 +44,11 @@
     <string name="login_connection_error">Connection error. Please try again.</string>
     <string name="login_guest_mode_hint">Guest mode: capture and print locally only. Sign in to sync with server.</string>
     <string name="logout">Log out</string>
+    <string name="logout_confirm_title">Confirm log out</string>
+    <string name="logout_confirm_message">Are you sure you want to log out?</string>
+    <string name="logout_confirm_yes">Log out</string>
+    <string name="login_confirm_title">Confirm sign in</string>
+    <string name="login_confirm_message">Go to the sign-in screen?</string>
+    <string name="login_confirm_yes">Sign in</string>
 
 </resources>

@@ -68,6 +68,8 @@ dependencies {
     implementation 'androidx.recyclerview:recyclerview:1.3.2'  // Updated to the latest version
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'  // Updated to the latest version
     implementation 'jp.co.cyberagent.android:gpuimage:2.1.0'
+    implementation 'io.socket:socket.io-client:2.1.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
 
     // Glide (updated version)
     implementation 'com.github.bumptech.glide:glide:4.15.1'  // Updated to a more recent version

@@ -186,9 +186,7 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
         // imgSolve 초기화
         imgSolve = new ImageSolve(this);
-        SharedPreferences sharedPreferences = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
-        ISOvalue = Integer.parseInt(sharedPreferences.getString("isovalue", "400"));
-        ExpoValue=Integer.parseInt(sharedPreferences.getString("epxvalue", "30000000"));
+        reloadIsoExposureFromPrefs();
 
         //xu ly anh phu -------------------------------------------------------------
         SharedPreferences sharedPreferences2 = getSharedPreferences("MyAppPrefs2", MODE_PRIVATE);
@@ -206,8 +204,10 @@ public class Activity_Camera2 extends AppCompatActivity {
                     Log.e("MainActivity", "Lỗi khi tạo hoặc lấy thư mục NameCard.");
                 }
             });
+            // Device Manager: đăng ký máy + join socket (android / mono)
+            connectMachinePresenceForDeviceManager(tokenManager.getToken());
         }
-        counterTime=sharedPreferences.getInt("counterTime", 1);
+        counterTime = getSharedPreferences("MyAppPrefs", MODE_PRIVATE).getInt("counterTime", 1);
         if (!bitmapListImageView2.isEmpty()) {
             image = UserAssetFileStore.decodeListEntryToBitmap(this,
                 bitmapListImageView2.get(currentIndexImageView2));
@@ -518,12 +518,12 @@ public class Activity_Camera2 extends AppCompatActivity {
         int dpi = origin.getDensity();
         if (dpi == 0) dpi = 203; // 기본 DPI 설정
         Bitmap resizedBitmap = imgSolve.processingImage(origin);
-        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 2.0f));
+        AtomicReference<Bitmap> bmp = new AtomicReference<>(imgSolve.applySharpening(resizedBitmap, 1.2f));
         bmp.get().setDensity(dpi);
 
-        int light = 15;
+        int light = 10;
         int[] lightValue1 = {light}; // Adjust brightness based on SeekBar progress
-        float contrast = 1.4f;
+        float contrast = 1.5f;
         float[] contrastValue = {contrast};
         Bitmap[] adjustedBitmap2 = {null};
 
@@ -551,11 +551,11 @@ public class Activity_Camera2 extends AppCompatActivity {
         } else {
             bitmapFrame = bitmapFrameNull; // Set bitmapFrameNull nếu bitmapList trống
         }
-        // Khung giữ màu (lưu file); bản trắng-đen chỉ dùng khi in
-        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame, 800);
+        // Khung giữ màu (lưu file); bản trắng-đen chỉ dùng khi in — 1152 ≈ 2× độ rộng in dither 576
+        bitmapFrame = imgSolve.resizeBitmapMaintainAspect(bitmapFrame, 1152);
 // Bitmap đã xử lý (adjustedBitmap2[0])
         Bitmap processedBitmap2 = adjustedBitmap2[0];
-        processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,800); // Nếu cần chuyển thành grayscale
+        processedBitmap2 = imgSolve.resizeBitmapMaintainAspect(processedBitmap2,1152); // Nếu cần chuyển thành grayscale
 
 // Tạo Bitmap mới để kết hợp
         // Tính toán kích thước mới cho processedBitmap2
@@ -650,7 +650,6 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
         int PRINT_THREE_INCH = 576;
-        int BITMAP_SHAKE = 1;
         final String monoFolderName = generateMonoServerFolderId();
         final String monoLocalPhotoName = monoFolderName + "_1.jpg";
         Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
@@ -684,15 +683,16 @@ public class Activity_Camera2 extends AppCompatActivity {
             combinedBitmapColor.recycle();
         }
         PrintNumber();
+        final int printMode = PrintBitmapMode.get(this);
         printImage(
                 combinedBitmap,
                 0,
                 PRINT_THREE_INCH,
                 false,
-                BITMAP_SHAKE
+                printMode
         );
 
-        printImage2(image, 0, 576, false, 1);
+        printImage2(image, 0, 576, false, printMode);
         final File fCombinedDrive = combinedFileForDrive;
         final boolean showQr = isShowQrEnabled();
         if (showQr) {
@@ -703,7 +703,7 @@ public class Activity_Camera2 extends AppCompatActivity {
             }
         } else {
             Bitmap bitmapPrint = BitmapFactory.decodeResource(Activity_Camera2.this.getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+            printEmptyAndCut(0, 150, false, printMode, bitmapPrint);
         }
         scheduleServerUpload(fCombinedDrive, monoFolderName);
         imgSolve.clearCache();
@@ -826,24 +826,25 @@ public class Activity_Camera2 extends AppCompatActivity {
     }
 
     private void printMonoDriveQrForUploadedFileLink(@Nullable String driveFileLink) {
+        final int printMode = PrintBitmapMode.get(this);
         if (driveFileLink == null || driveFileLink.isEmpty()) {
             Log.e(TAG, "Không có link file Drive — in kết thúc, bỏ QR.");
             Bitmap bitmapPrint = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1, bitmapPrint);
+            printEmptyAndCut(0, 150, false, printMode, bitmapPrint);
             return;
         }
         GoogleDriveService driveService = new GoogleDriveService(this);
         Bitmap qr = driveService.generateQRCodeForUrl(driveFileLink);
         if (qr != null) {
             Log.d(TAG, "QR từ link file: " + driveFileLink);
-            printQR(qr, 0, 140, true, 1);
+            printQR(qr, 0, 140, true, PrintBitmapMode.THRESHOLD);
             imgSolve.generateQRCode("https://maps.app.goo.gl/BrvtyEMcy8gPFq939", 500);
             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1, end);
+            printEmptyAndCut(0, 150, false, printMode, end);
         } else {
             Log.e(TAG, "Không tạo được QR từ link file");
             Bitmap end = BitmapFactory.decodeResource(getResources(), R.drawable.end);
-            printEmptyAndCut(0, 150, false, 1, end);
+            printEmptyAndCut(0, 150, false, printMode, end);
         }
     }
 
@@ -951,7 +952,8 @@ public class Activity_Camera2 extends AppCompatActivity {
 
 
             try {
-                //Print.SetPrintDensity((byte)4);
+                // HalftoneMode từ settings (0/1/2)
+                Print.SetPrintDensity((byte) 4);
                 Print.setPrintResolution(203,203);
                 Print.PrintBitmap(bitmapPrint, sype, light);  // In ảnh
 
@@ -1140,8 +1142,9 @@ public class Activity_Camera2 extends AppCompatActivity {
                     largestSize = size;
                 }
             }
-            ImageReader reader = ImageReader.newInstance(480,640, ImageFormat.JPEG, 1);
-            // Kiểm tra độ phân giải tối đa mà camera hỗ trợ
+            // In dither 576px: chụp full JPEG (không cố định 480x640 — phóng to làm ảnh in rất xấu)
+            ImageReader reader = ImageReader.newInstance(
+                    largestSize.getWidth(), largestSize.getHeight(), ImageFormat.JPEG, 1);
 
             // Thiết lập các Surface để sử dụng với camera
             List<Surface> outputSurfaces = new ArrayList<>(2);
@@ -1371,10 +1374,76 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
     }
 
+    /** Đọc lại ISO / exposure từ prefs — cần khi quay từ Manual (activity không recreate). */
+    private void reloadIsoExposureFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences("MyAppPrefs", MODE_PRIVATE);
+        try {
+            ISOvalue = Integer.parseInt(prefs.getString("isovalue", "400"));
+        } catch (NumberFormatException e) {
+            ISOvalue = 400;
+        }
+        try {
+            ExpoValue = Long.parseLong(prefs.getString("epxvalue", "30000000"));
+        } catch (NumberFormatException e) {
+            ExpoValue = 30000000L;
+        }
+        Log.d(TAG, "reloadIsoExposureFromPrefs ISO=" + ISOvalue + " Expo=" + ExpoValue);
+    }
+
+    /**
+     * Đăng ký máy trên server + join socket machine-app (Device Manager hiện Android / Mono).
+     */
+    private void connectMachinePresenceForDeviceManager(String token) {
+        if (token == null || token.isEmpty()) {
+            return;
+        }
+        new Thread(() -> {
+            try {
+                MachineManager machineManager = MachineManager.getInstance(Activity_Camera2.this);
+                boolean ok = machineManager.checkAndUpdateMachine(token);
+                if (!ok) {
+                    Log.w(TAG, "checkAndUpdateMachine failed — skip socket presence");
+                    return;
+                }
+                String machineId = machineManager.getMachineCode();
+                if (machineId == null || machineId.isEmpty()) {
+                    return;
+                }
+                final String machineIdUpper = machineId.trim().toUpperCase();
+                runOnUiThread(() -> {
+                    SocketService socketService = SocketService.getInstance();
+                    socketService.connect();
+                    final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
+                    final Runnable tryJoin = new Runnable() {
+                        int attempts = 0;
+
+                        @Override
+                        public void run() {
+                            attempts++;
+                            if (socketService.isConnected()) {
+                                socketService.joinMachineRoom(machineIdUpper);
+                                socketService.joinMachineAppRoom(machineIdUpper, "android", "mono");
+                                Log.d(TAG, "Joined machine-app room (mono): " + machineIdUpper);
+                                return;
+                            }
+                            if (attempts < 15) {
+                                mainHandler.postDelayed(this, 300);
+                            }
+                        }
+                    };
+                    mainHandler.post(tryJoin);
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "connectMachinePresenceForDeviceManager error", e);
+            }
+        }).start();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        reloadIsoExposureFromPrefs();
         final boolean softSwitch = MonoScreenSwitch.consumeSoftResume();
         MonoDriveServerSync.requestSyncIfLoggedIn(this);
         applyClickButtonHiddenState();

@@ -58,6 +58,32 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/print_bitmap_mode"
+            android:textColor="@color/mp_brand_text"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-medium" />
+
+        <Spinner
+            android:id="@+id/spinnerPrintBitmapMode"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/mono_btn_secondary"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <ProgressBar

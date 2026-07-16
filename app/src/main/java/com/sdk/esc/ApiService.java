@@ -528,4 +528,102 @@ public class ApiService {
         }
         out.writeBytes("\r\n");
     }
+
+    /** POST /api/machines — tạo máy (Device Manager). */
+    public static JSONObject createMachine(String token, String machineCode) {
+        try {
+            URL url = new URL(BASE_URL + "/machines");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+
+            JSONObject jsonBody = new JSONObject();
+            jsonBody.put("machineCode", machineCode);
+            OutputStream os = conn.getOutputStream();
+            os.write(jsonBody.toString().getBytes(StandardCharsets.UTF_8));
+            os.close();
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == 201) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    response.append(line);
+                }
+                br.close();
+                return new JSONObject(response.toString());
+            }
+            Log.e(TAG, "createMachine failed: " + responseCode);
+            return null;
+        } catch (Exception e) {
+            Log.e(TAG, "createMachine error", e);
+            return null;
+        }
+    }
+
+    /** GET /api/machines/:code */
+    public static JSONObject getMachine(String token, String machineCode) {
+        try {
+            URL url = new URL(BASE_URL + "/machines/" + machineCode);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    response.append(line);
+                }
+                br.close();
+                return new JSONObject(response.toString());
+            }
+            return null;
+        } catch (Exception e) {
+            Log.e(TAG, "getMachine error", e);
+            return null;
+        }
+    }
+
+    /** PATCH /api/machines/:code/link-user */
+    public static boolean linkUserToMachine(String machineCode, String randomCode, String userId) {
+        try {
+            if (machineCode == null || machineCode.isEmpty()
+                    || randomCode == null || randomCode.isEmpty()
+                    || userId == null || userId.isEmpty()) {
+                return false;
+            }
+            URL url = new URL(BASE_URL + "/machines/" + machineCode + "/link-user");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("PATCH");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+
+            JSONObject body = new JSONObject();
+            body.put("randomCode", randomCode);
+            body.put("userId", userId);
+            OutputStream os = conn.getOutputStream();
+            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+            os.close();
+
+            int responseCode = conn.getResponseCode();
+            return responseCode == HttpURLConnection.HTTP_OK
+                    || responseCode == HttpURLConnection.HTTP_CREATED
+                    || responseCode == HttpURLConnection.HTTP_NO_CONTENT;
+        } catch (Exception e) {
+            Log.e(TAG, "linkUserToMachine error", e);
+            return false;
+        }
+    }
 }

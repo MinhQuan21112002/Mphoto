@@ -76,23 +76,21 @@ public class ImageSolve {
         Mat matGray = new Mat();
         Imgproc.cvtColor(matOriginal, matGray, Imgproc.COLOR_BGR2GRAY);
 
-        // CLAHE 적용
+        // CLAHE — tăng tương phản cục bộ (quan trọng với máy in chỉ có dither)
         Mat matCLAHE = new Mat();
-        CLAHE clahe = Imgproc.createCLAHE(1, new org.opencv.core.Size(3, 3));
+        CLAHE clahe = Imgproc.createCLAHE(2.0, new org.opencv.core.Size(8, 8));
         clahe.apply(matGray, matCLAHE);
 
-        // *가우시안 블러 적용*
-        Mat matBlurred = new Mat();
-        Imgproc.GaussianBlur(matCLAHE, matBlurred, new org.opencv.core.Size(3, 3), 0);
+        // Không GaussianBlur: làm mờ trước dither → ảnh in hạt nhão, mất chi tiết
 
-        // Mat을 Bitmap으로 변환
-        Bitmap processedBitmap = Bitmap.createBitmap(matBlurred.cols(), matBlurred.rows(), Bitmap.Config.ARGB_8888);
+        Bitmap processedBitmap = Bitmap.createBitmap(matCLAHE.cols(), matCLAHE.rows(), Bitmap.Config.ARGB_8888);
         Log.d("Bitmap Dimensions", "Width: " + processedBitmap.getWidth() + ", Height: " + processedBitmap.getHeight());
 
-        Utils.matToBitmap(matBlurred, processedBitmap);
+        Utils.matToBitmap(matCLAHE, processedBitmap);
 
-        // *GPUImage를 사용하여 크
-
+        matOriginal.release();
+        matGray.release();
+        matCLAHE.release();
 
         return processedBitmap;
     }
