@@ -567,7 +567,15 @@ public class ApiService {
     }
 
     /** GET /api/machines/:code */
+    /** HTTP status của lần gọi getMachine gần nhất (0 nếu chưa gọi / exception). */
+    private static volatile int lastGetMachineHttpStatus = 0;
+
+    public static int getLastGetMachineHttpStatus() {
+        return lastGetMachineHttpStatus;
+    }
+
     public static JSONObject getMachine(String token, String machineCode) {
+        lastGetMachineHttpStatus = 0;
         try {
             URL url = new URL(BASE_URL + "/machines/" + machineCode);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -577,6 +585,8 @@ public class ApiService {
             conn.setReadTimeout(15000);
 
             int responseCode = conn.getResponseCode();
+            lastGetMachineHttpStatus = responseCode;
+            Log.d(TAG, "getMachine response code: " + responseCode);
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                 StringBuilder response = new StringBuilder();
@@ -591,6 +601,44 @@ public class ApiService {
         } catch (Exception e) {
             Log.e(TAG, "getMachine error", e);
             return null;
+        }
+    }
+
+    /**
+     * POST /api/mobile-upload/machine/:code/update-random-code
+     * Dùng reclaim khi đổi tài khoản mà randomCode local lệch server (không check owner).
+     */
+    public static boolean updateMachineRandomCode(String token, String machineCode, String randomCode) {
+        try {
+            if (token == null || token.isEmpty()
+                    || machineCode == null || machineCode.isEmpty()
+                    || randomCode == null || randomCode.isEmpty()) {
+                Log.w(TAG, "updateMachineRandomCode: missing parameters");
+                return false;
+            }
+
+            URL url = new URL(BASE_URL + "/mobile-upload/machine/" + machineCode + "/update-random-code");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+
+            JSONObject jsonBody = new JSONObject();
+            jsonBody.put("randomCode", randomCode);
+
+            OutputStream os = conn.getOutputStream();
+            os.write(jsonBody.toString().getBytes(StandardCharsets.UTF_8));
+            os.close();
+
+            int responseCode = conn.getResponseCode();
+            Log.d(TAG, "updateMachineRandomCode response code: " + responseCode);
+            return responseCode == HttpURLConnection.HTTP_OK || responseCode == 201;
+        } catch (Exception e) {
+            Log.e(TAG, "updateMachineRandomCode error", e);
+            return false;
         }
     }
 
@@ -618,6 +666,7 @@ public class ApiService {
             os.close();
 
             int responseCode = conn.getResponseCode();
+            Log.d(TAG, "linkUserToMachine response code: " + responseCode);
             return responseCode == HttpURLConnection.HTTP_OK
                     || responseCode == HttpURLConnection.HTTP_CREATED
                     || responseCode == HttpURLConnection.HTTP_NO_CONTENT;

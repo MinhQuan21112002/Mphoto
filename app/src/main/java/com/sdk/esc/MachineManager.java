@@ -304,7 +304,8 @@ public class MachineManager {
                 return true;
             }
             
-            // BƯỚC 3: Đã có thông tin local → đảm bảo machine đang linked với user hiện tại
+            // BƯỚC 3: Link machine với user đang đăng nhập (đổi tài khoản A→B)
+            boolean linked = false;
             try {
                 TokenManager tokenManager = TokenManager.getInstance(context);
                 String currentUserId = tokenManager != null ? tokenManager.getUserId() : null;
@@ -312,9 +313,26 @@ public class MachineManager {
                 if (currentUserId != null
                         && machineCode != null && !machineCode.isEmpty()
                         && randomCode != null && !randomCode.isEmpty()) {
-                    boolean linked = ApiService.linkUserToMachine(machineCode, randomCode, currentUserId);
-                    Log.d(TAG, "Link user to machine result: " + linked 
-                            + " (userId=" + currentUserId + ", machineCode=" + machineCode + ")");
+                    linked = ApiService.linkUserToMachine(machineCode, randomCode, currentUserId);
+                    Log.d(TAG, "Link user to machine result: " + linked
+                            + " (userId=" + currentUserId
+                            + ", machineCode=" + machineCode
+                            + ", randomCode=" + randomCode + ")");
+
+                    // Reclaim: mã local lệch server → đẩy mã local lên rồi link lại
+                    // (update-random-code chỉ cần JWT, không check owner)
+                    if (!linked) {
+                        Log.d(TAG, "Reclaim: push local randomCode then re-link: " + randomCode);
+                        boolean pushed = ApiService.updateMachineRandomCode(
+                                token, machineCode, randomCode);
+                        if (pushed) {
+                            linked = ApiService.linkUserToMachine(
+                                    machineCode, randomCode, currentUserId);
+                            Log.d(TAG, "Reclaim link after push result: " + linked);
+                        } else {
+                            Log.w(TAG, "Reclaim: failed to push randomCode to server");
+                        }
+                    }
                 } else {
                     Log.d(TAG, "Skip linkUserToMachine: missing currentUserId or machine info");
                 }
@@ -322,7 +340,7 @@ public class MachineManager {
                 Log.e(TAG, "Error while linking user to machine", ex);
             }
             
-            // BƯỚC 3: Đã có thông tin local → kiểm tra server
+            // BƯỚC 4: Đồng bộ từ server (sau khi đã link — tránh 403 khi máy còn thuộc user cũ)
             Log.d(TAG, "Checking server for updates...");
             JSONObject serverResponse = ApiService.getMachine(token, machineCode);
             
@@ -336,11 +354,7 @@ public class MachineManager {
                     Log.d(TAG, "   Old: " + randomCode);
                     Log.d(TAG, "   New: " + serverRandomCode);
                     
-                    // Lưu mã cũ
-                    previousRandomCode = randomCode;
-                    randomCode = serverRandomCode;
-                    lastUpdated = System.currentTimeMillis();
-                    saveToStorage();
+                    updateRandomCode(serverRandomCode);
                     
                     // Notify listener
                     if (changeListener != null) {
@@ -352,11 +366,17 @@ public class MachineManager {
                 
                 return true;
             } else {
-                // Machine không tồn tại trên server → tạo lại
-                Log.w(TAG, "Machine not found on server, creating new one...");
-                randomCode = null;
-                saveToStorage();
-                return checkAndUpdateMachine(token); // Recursive call để tạo mới
+                // 404 thật → tạo lại. 403 (máy thuộc user khác + link fail) → giữ mã local
+                int status = ApiService.getLastGetMachineHttpStatus();
+                if (status == 404) {
+                    Log.w(TAG, "Machine not found on server (404), creating new one...");
+                    randomCode = null;
+                    saveToStorage();
+                    return checkAndUpdateMachine(token);
+                }
+                Log.w(TAG, "Machine not accessible on server (HTTP " + status
+                        + "), keeping local codes. linked=" + linked);
+                return linked || hasMachineInfo();
             }
             
         } catch (Exception e) {
@@ -410,6 +430,24 @@ public class MachineManager {
     public void setMachineName(String name) {
         this.machineName = name;
         saveToStorage();
+    }
+
+    /**
+     * Cập nhật randomCode local (prefs + machine.json).
+     */
+    public void updateRandomCode(String newCode) {
+        if (newCode == null || newCode.isEmpty()) {
+            return;
+        }
+        String normalized = newCode.trim().toUpperCase();
+        if (normalized.equals(randomCode)) {
+            return;
+        }
+        previousRandomCode = randomCode;
+        randomCode = normalized;
+        lastUpdated = System.currentTimeMillis();
+        saveToStorage();
+        Log.d(TAG, "✅ RandomCode updated locally: " + previousRandomCode + " -> " + randomCode);
     }
     
     public void setChangeListener(RandomCodeChangeListener listener) {

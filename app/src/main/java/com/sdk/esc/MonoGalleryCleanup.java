@@ -17,8 +17,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Tự xóa gallery Mono quá hạn (mặc định 7 ngày): local + server (nếu đã đồng bộ).
- * Server: gom {@code folderId} quá hạn — gọi {@code POST /mono-results/delete-galleries} theo batch (ổn định hơn 1 request quá lớn).
+ * Tự xóa gallery Mono quá hạn (mặc định 7 ngày): local + server.
+ * <p>Luồng an toàn:
+ * <ul>
+ *   <li>Còn trên server → xóa server trước; chỉ xóa local khi server đã xóa OK.</li>
+ *   <li>Lần mở app sau: nếu local còn mà server đã không còn → xóa local luôn.</li>
+ *   <li>Server xóa lỗi → giữ local, lần sau thử lại.</li>
+ * </ul>
+ * Server: gom {@code folderId} quá hạn — gọi {@code POST /mono-results/delete-galleries} theo batch.
  */
 public final class MonoGalleryCleanup {
     private static final String TAG = "MonoGalleryCleanup";
@@ -130,6 +136,8 @@ public final class MonoGalleryCleanup {
             if (!isExpired(item.folderId, item.time, cutoffMs)) {
                 continue;
             }
+            // Còn trên server + đang sync được → chỉ xóa local sau khi server đã xóa OK.
+            // Không còn trên server (hoặc chưa sync) → xóa local luôn (kể cả lần mở app sau).
             boolean onServer = serverIds.contains(item.folderId);
             if (onServer && canDeleteServer) {
                 if (!serverDeleted.contains(item.folderId)) {
