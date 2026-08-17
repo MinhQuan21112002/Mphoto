@@ -852,14 +852,27 @@ public class Activity_Camera2 extends AppCompatActivity {
         return ApiService.BASE_URL + "/mono-results/g/" + folderName;
     }
 
+    /**
+     * folderId Mono: {@code yyyyMMddHHmmss} + mã máy (6) + 10 ký tự random.
+     * Ví dụ: {@code 202608151543293VGMHWab12cd34ef}
+     */
     private String generateMonoServerFolderId() {
-        String datePart = new java.text.SimpleDateFormat("ddMMyyyyHHmmss", Locale.US).format(new java.util.Date());
+        String datePart = new java.text.SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(new java.util.Date());
+        String machinePart = "";
+        try {
+            String mc = MachineManager.getInstance(this).getMachineCode();
+            if (mc != null) {
+                machinePart = mc.trim().toUpperCase(Locale.US);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "generateMonoServerFolderId: không lấy được machineCode", e);
+        }
         Random r = new Random();
         StringBuilder randomPart = new StringBuilder(10);
         for (int i = 0; i < 10; i++) {
             randomPart.append(MONO_FOLDER_ID_CHARS.charAt(r.nextInt(MONO_FOLDER_ID_CHARS.length())));
         }
-        return datePart + randomPart;
+        return datePart + machinePart + randomPart;
     }
 
 

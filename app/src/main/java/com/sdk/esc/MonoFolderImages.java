@@ -32,7 +32,9 @@ public final class MonoFolderImages {
     public static final int PAGE_SIZE = 10;
     /** 12 lần × 10 ảnh */
     public static final int MAX_ITEMS = 120;
-    private static final Pattern LOCAL_GALLERY_FILE = Pattern.compile("^([0-9]{14}[a-z0-9]{10})_1\\.(jpg|jpeg)$");
+    /** Mới: 14 số ngày giờ + 6 mã máy + 10 random. Cũ: 14 số + 10 random (không mã máy). */
+    private static final Pattern LOCAL_GALLERY_FILE =
+            Pattern.compile("^([0-9]{14}(?:[A-Za-z0-9]{6})?[a-z0-9]{10})_1\\.(jpg|jpeg)$");
     private static final Pattern LEGACY_LOCAL_FILE = Pattern.compile("^(\\d{8})_(\\d{6})_(\\d{10})\\.(jpg|jpeg)$");
 
     public static final class LocalGalleryItem {
