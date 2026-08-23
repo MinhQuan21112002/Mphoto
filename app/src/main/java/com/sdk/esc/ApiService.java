@@ -366,6 +366,217 @@ public class ApiService {
         return s.isEmpty() ? new JSONObject() : new JSONObject(s);
     }
 
+    /**
+     * GET /users/mobile-upload-status — gồm galleryUploadMethod của tài khoản.
+     */
+    @Nullable
+    public static JSONObject getMobileUploadStatus(String token) throws Exception {
+        return getJsonObjectAuthed("/users/mobile-upload-status", token);
+    }
+
+    /**
+     * Upload gallery Mono theo phương thức admin:
+     * signedUrl → prepare + PUT Firebase + confirm; lỗi → fallback multipart server.
+     */
+    public static JSONObject uploadMonoGalleryPhoto(
+            android.content.Context context,
+            String token,
+            String folderName,
+            File photoFile,
+            String uploadFileName
+    ) throws Exception {
+        if (token == null || token.isEmpty()) {
+            throw new Exception("Thiếu token");
+        }
+        boolean preferSigned = context != null
+                && GalleryUploadMethodService.getInstance(context).useSignedUrl();
+        if (preferSigned) {
+            try {
+                return uploadMonoPhotoDirect(token, folderName, photoFile, uploadFileName);
+            } catch (Exception directEx) {
+                Log.w(TAG, "Mono signedUrl failed, fallback server: " + directEx.getMessage());
+            }
+        }
+        return uploadMonoPhotoWithName(token, folderName, photoFile, uploadFileName);
+    }
+
+    /**
+     * Prepare signed URL → PUT Firebase → confirm DB.
+     * POST /mono-results/prepare-direct-upload + PUT + POST /mono-results/confirm-direct-upload
+     */
+    public static JSONObject uploadMonoPhotoDirect(
+            String token,
+            String folderName,
+            File photoFile,
+            String uploadFileName
+    ) throws Exception {
+        if (token == null || token.isEmpty()) {
+            throw new Exception("Thiếu token");
+        }
+        if (folderName == null || folderName.trim().isEmpty()) {
+            throw new Exception("Thiếu folderName");
+        }
+        if (photoFile == null || !photoFile.exists()) {
+            throw new Exception("Ảnh upload không tồn tại");
+        }
+        String fileName = (uploadFileName == null || uploadFileName.isEmpty()) ? "1.jpg" : uploadFileName;
+
+        JSONObject prepareBody = new JSONObject();
+        prepareBody.put("folderName", folderName);
+        JSONArray filesArr = new JSONArray();
+        JSONObject fileMeta = new JSONObject();
+        fileMeta.put("name", fileName);
+        fileMeta.put("contentType", "image/jpeg");
+        fileMeta.put("mediaType", "image");
+        filesArr.put(fileMeta);
+        prepareBody.put("files", filesArr);
+
+        JSONObject prepared = postJsonAuthed("/mono-results/prepare-direct-upload", token, prepareBody);
+        JSONArray uploads = prepared != null ? prepared.optJSONArray("uploads") : null;
+        if (uploads == null || uploads.length() == 0) {
+            throw new Exception("prepare-direct-upload: empty uploads");
+        }
+
+        for (int i = 0; i < uploads.length(); i++) {
+            JSONObject item = uploads.getJSONObject(i);
+            String uploadUrl = item.optString("uploadUrl", "");
+            String name = item.optString("name", "");
+            String contentType = item.optString("contentType", "image/jpeg");
+            if (uploadUrl.isEmpty() || name.isEmpty()) {
+                throw new Exception("prepare-direct-upload: missing uploadUrl/name");
+            }
+            Exception last = null;
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    putFileToSignedUrl(uploadUrl, photoFile, contentType);
+                    last = null;
+                    break;
+                } catch (Exception ex) {
+                    last = ex;
+                    Log.w(TAG, "PUT " + name + " attempt " + attempt + ": " + ex.getMessage());
+                    if (attempt < 3) {
+                        try {
+                            Thread.sleep(800L * attempt);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+            }
+            if (last != null) {
+                throw last;
+            }
+        }
+
+        JSONObject confirmBody = new JSONObject();
+        confirmBody.put("folderName", folderName);
+        JSONArray confirmFiles = new JSONArray();
+        JSONObject confirmFile = new JSONObject();
+        confirmFile.put("name", fileName);
+        confirmFile.put("mediaType", "image");
+        confirmFiles.put(confirmFile);
+        confirmBody.put("files", confirmFiles);
+
+        Exception confirmLast = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                return postJsonAuthed("/mono-results/confirm-direct-upload", token, confirmBody);
+            } catch (Exception ex) {
+                confirmLast = ex;
+                Log.w(TAG, "confirm attempt " + attempt + ": " + ex.getMessage());
+                if (attempt < 3) {
+                    try {
+                        Thread.sleep(800L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
+        }
+        throw confirmLast != null ? confirmLast : new Exception("confirm-direct-upload failed");
+    }
+
+    private static void putFileToSignedUrl(String uploadUrl, File file, String contentType) throws Exception {
+        URL url = new URL(uploadUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("PUT");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", contentType != null ? contentType : "image/jpeg");
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(120000);
+        long len = file.length();
+        if (len > 0 && len <= Integer.MAX_VALUE) {
+            conn.setFixedLengthStreamingMode((int) len);
+        } else {
+            conn.setChunkedStreamingMode(128 * 1024);
+        }
+
+        try (FileInputStream fis = new FileInputStream(file);
+             OutputStream os = conn.getOutputStream()) {
+            byte[] buf = new byte[128 * 1024];
+            int n;
+            while ((n = fis.read(buf)) >= 0) {
+                os.write(buf, 0, n);
+            }
+            os.flush();
+        }
+
+        int code = conn.getResponseCode();
+        java.io.InputStream errStream = conn.getErrorStream();
+        String errBody = "";
+        if (errStream != null) {
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(errStream, StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    sb.append(line);
+                }
+                errBody = sb.toString();
+            }
+        }
+        conn.disconnect();
+        if (code < 200 || code >= 300) {
+            throw new Exception("PUT Firebase HTTP " + code + (errBody.isEmpty() ? "" : (": " + errBody)));
+        }
+    }
+
+    private static JSONObject postJsonAuthed(String pathAfterApi, String token, JSONObject body) throws Exception {
+        String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
+        URL url = new URL(BASE_URL + path);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Authorization", "Bearer " + token);
+        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(30000);
+        conn.setReadTimeout(60000);
+
+        byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+        conn.setFixedLengthStreamingMode(bytes.length);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(bytes);
+        }
+
+        int code = conn.getResponseCode();
+        java.io.InputStream in = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        StringBuilder resp = new StringBuilder();
+        if (in != null) {
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    resp.append(line);
+                }
+            }
+        }
+        conn.disconnect();
+        if (code < 200 || code >= 300) {
+            throw new Exception("HTTP " + code + ": " + resp);
+        }
+        String s = resp.toString().trim();
+        return s.isEmpty() ? new JSONObject() : new JSONObject(s);
+    }
+
     public static JSONArray getMonoAllGalleryIds(String token) throws Exception {
         return getJsonArrayAuthed("/mono-results/all-gallery-ids", token);
     }

@@ -150,6 +150,11 @@ public class LoginActivity extends AppCompatActivity {
                             }
                             MonoDriveServerSync.requestSyncIfLoggedIn(LoginActivity.this);
                             MonoGalleryCleanup.runInBackground(LoginActivity.this);
+                            final String tokenForSync = token;
+                            new Thread(() ->
+                                    GalleryUploadMethodService.getInstance(LoginActivity.this)
+                                            .syncFromServer(tokenForSync)
+                            ).start();
                             Toast.makeText(this, getString(R.string.login_successful), Toast.LENGTH_SHORT).show();
                             navigateToMain();
                         } catch (Exception e) {

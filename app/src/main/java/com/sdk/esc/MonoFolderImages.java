@@ -34,7 +34,7 @@ public final class MonoFolderImages {
     public static final int MAX_ITEMS = 120;
     /** Mới: 14 số ngày giờ + 6 mã máy + 10 random. Cũ: 14 số + 10 random (không mã máy). */
     private static final Pattern LOCAL_GALLERY_FILE =
-            Pattern.compile("^([0-9]{14}(?:[A-Za-z0-9]{6})?[a-z0-9]{10})_1\\.(jpg|jpeg)$");
+            Pattern.compile("^([0-9]{14}(?:[A-Za-z0-9]{6})?[A-Za-z0-9]{10})_1\\.(jpg|jpeg)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern LEGACY_LOCAL_FILE = Pattern.compile("^(\\d{8})_(\\d{6})_(\\d{10})\\.(jpg|jpeg)$");
 
     public static final class LocalGalleryItem {
@@ -204,7 +204,7 @@ public final class MonoFolderImages {
             String name = resolveImageFileName(context, uri);
             if (name == null || name.isEmpty()) continue;
             String lower = name.toLowerCase(Locale.US);
-            Matcher m = LOCAL_GALLERY_FILE.matcher(lower);
+            Matcher m = LOCAL_GALLERY_FILE.matcher(name);
             String folderId = null;
             if (m.matches()) {
                 folderId = m.group(1);
@@ -223,6 +223,8 @@ public final class MonoFolderImages {
             if (folderId == null || folderId.trim().isEmpty()) {
                 continue;
             }
+            // Chuẩn hóa: nếu tên file đủ 30 ký tự (có mã máy) giữ nguyên; legacy 24 ký tự vẫn giữ
+            folderId = folderId.trim();
             long t = System.currentTimeMillis();
             if (ContentResolver.SCHEME_FILE.equals(uri.getScheme())) {
                 String p = uri.getPath();

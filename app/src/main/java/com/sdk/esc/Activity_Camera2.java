@@ -87,8 +87,6 @@ import com.google.gson.reflect.TypeToken;
 import org.opencv.android.OpenCVLoader;
 
 public class Activity_Camera2 extends AppCompatActivity {
-    private static final String MONO_FOLDER_ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
-
     File file;
     ImageSolve imgSolve;
     private MediaPlayer countdownSound;
@@ -206,6 +204,10 @@ public class Activity_Camera2 extends AppCompatActivity {
             });
             // Device Manager: đăng ký máy + join socket (android / mono)
             connectMachinePresenceForDeviceManager(tokenManager.getToken());
+            final String tokenSync = tokenManager.getToken();
+            new Thread(() ->
+                    GalleryUploadMethodService.getInstance(Activity_Camera2.this).syncFromServer(tokenSync)
+            ).start();
         }
         counterTime = getSharedPreferences("MyAppPrefs", MODE_PRIVATE).getInt("counterTime", 1);
         if (!bitmapListImageView2.isEmpty()) {
@@ -618,8 +620,8 @@ public class Activity_Camera2 extends AppCompatActivity {
         if (PrinterTestMode.isEnabled(this)) {
             try {
                 // Cùng folderId cho local + server (tránh lệch tên)
-                final String monoFolderName = generateMonoServerFolderId();
-                final String monoLocalPhotoName = monoFolderName + "_1.jpg";
+                final String monoFolderName = MonoGalleryFolderIds.generate(this);
+                final String monoLocalPhotoName = MonoGalleryFolderIds.localPhotoFileName(monoFolderName);
                 Bitmap fullPage = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, 576);
                 if (fullPage == null) {
                     fullPage = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
@@ -650,8 +652,8 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
         //adjustedBitmap2[0]=imgSolve.applyMedianFilter(adjustedBitmap2[0],3);
         int PRINT_THREE_INCH = 576;
-        final String monoFolderName = generateMonoServerFolderId();
-        final String monoLocalPhotoName = monoFolderName + "_1.jpg";
+        final String monoFolderName = MonoGalleryFolderIds.generate(this);
+        final String monoLocalPhotoName = MonoGalleryFolderIds.localPhotoFileName(monoFolderName);
         Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
         try {
             if (fullPageForFile != null) {
@@ -816,8 +818,8 @@ public class Activity_Camera2 extends AppCompatActivity {
                     Log.e(TAG, "Upload Mono server: thiếu token");
                     return;
                 }
-                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(
-                        token, folderId, fileToUpload, "1.jpg");
+                org.json.JSONObject uploadRes = ApiService.uploadMonoGalleryPhoto(
+                        Activity_Camera2.this, token, folderId, fileToUpload, "1.jpg");
                 Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderId));
             } catch (Exception e) {
                 Log.e(TAG, "Upload Mono server lỗi", e);
@@ -851,30 +853,6 @@ public class Activity_Camera2 extends AppCompatActivity {
     private String buildMonoServerGalleryUrl(String folderName) {
         return ApiService.BASE_URL + "/mono-results/g/" + folderName;
     }
-
-    /**
-     * folderId Mono: {@code yyyyMMddHHmmss} + mã máy (6) + 10 ký tự random.
-     * Ví dụ: {@code 202608151543293VGMHWab12cd34ef}
-     */
-    private String generateMonoServerFolderId() {
-        String datePart = new java.text.SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(new java.util.Date());
-        String machinePart = "";
-        try {
-            String mc = MachineManager.getInstance(this).getMachineCode();
-            if (mc != null) {
-                machinePart = mc.trim().toUpperCase(Locale.US);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "generateMonoServerFolderId: không lấy được machineCode", e);
-        }
-        Random r = new Random();
-        StringBuilder randomPart = new StringBuilder(10);
-        for (int i = 0; i < 10; i++) {
-            randomPart.append(MONO_FOLDER_ID_CHARS.charAt(r.nextInt(MONO_FOLDER_ID_CHARS.length())));
-        }
-        return datePart + machinePart + randomPart;
-    }
-
 
     public void printQR(final Bitmap bitmap, final int light, final int size,
                         final boolean haveWifi, final int sype) {
@@ -1425,6 +1403,7 @@ public class Activity_Camera2 extends AppCompatActivity {
                 final String machineIdUpper = machineId.trim().toUpperCase();
                 runOnUiThread(() -> {
                     SocketService socketService = SocketService.getInstance();
+                    socketService.attachAppContext(Activity_Camera2.this);
                     socketService.connect();
                     final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
                     final Runnable tryJoin = new Runnable() {

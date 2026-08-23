@@ -213,12 +213,34 @@ public class MachineManager {
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         Random random = new Random();
         StringBuilder code = new StringBuilder();
-        
+
         for (int i = 0; i < 6; i++) {
             code.append(chars.charAt(random.nextInt(chars.length())));
         }
-        
+
         return code.toString();
+    }
+
+    /**
+     * Đảm bảo có machineCode local (prefs / JSON) trước khi tạo folderId gallery.
+     * Không gọi API — chỉ cần 6 ký tự cố định của máy.
+     */
+    public String ensureLocalMachineCode() {
+        if (machineCode != null && !machineCode.isEmpty()) {
+            return machineCode;
+        }
+        loadFromStorage();
+        if (machineCode != null && !machineCode.isEmpty()) {
+            return machineCode;
+        }
+        loadFromJsonFile();
+        if (machineCode != null && !machineCode.isEmpty()) {
+            return machineCode;
+        }
+        machineCode = generateMachineCode();
+        lastUpdated = System.currentTimeMillis();
+        saveToStorage();
+        return machineCode;
     }
     
     /**

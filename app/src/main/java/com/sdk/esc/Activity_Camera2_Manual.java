@@ -119,8 +119,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import print.Print;
 
 public class Activity_Camera2_Manual extends AppCompatActivity {
-    private static final String MONO_FOLDER_ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
-
     private ProgressDialog progressDialog;
 
     ImageSolve imgSolve; // Class for image processing
@@ -295,6 +293,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 }
             });
             SoftwareUpdateHelper.checkAndDownloadInBackground(this);
+            final String tokenSync = tokenManager.getToken();
+            new Thread(() ->
+                    GalleryUploadMethodService.getInstance(Activity_Camera2_Manual.this).syncFromServer(tokenSync)
+            ).start();
         }
 
         imgSolve = new ImageSolve(this);
@@ -1789,7 +1791,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     File f = MonoFolderImages.resolveFileFromUri(
                             Activity_Camera2_Manual.this,
                             item.previewUri,
-                            item.folderId + "_1.jpg"
+                            MonoGalleryFolderIds.localFileNameForItem(item.localFolderId, item.folderId)
                     );
                     if (f != null && f.exists()) {
                         bm = BitmapFactory.decodeFile(f.getAbsolutePath());
@@ -1995,11 +1997,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 List<MonoGalleryGroupAdapter.Item> locals = new ArrayList<>();
                 for (MonoFolderImages.LocalGalleryItem l : local) {
                     MonoGalleryGroupAdapter.Item item = new MonoGalleryGroupAdapter.Item();
-                    item.folderId = l.folderId;
+                    String canonicalId = MonoGalleryFolderIds.resolveCanonicalServerId(
+                            l.folderId, serverIds, Activity_Camera2_Manual.this);
+                    item.localFolderId = l.folderId;
+                    item.folderId = canonicalId;
                     item.previewUri = l.previewUri;
-                    item.synced = serverIds.contains(l.folderId);
+                    item.synced = MonoGalleryFolderIds.isSyncedOnServer(l.folderId, serverIds);
                     item.localSource = true;
-                    item.viewUrl = buildMonoServerGalleryUrl(l.folderId);
+                    item.viewUrl = buildMonoServerGalleryUrl(canonicalId);
                     locals.add(item);
                 }
                 runOnUiThread(() -> {
@@ -2062,9 +2067,17 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     try {
                         String token = TokenManager.getInstance(Activity_Camera2_Manual.this).getToken();
                         if (token == null || token.isEmpty()) throw new Exception("Thiếu token");
-                        File f = MonoFolderImages.resolveFileFromUri(Activity_Camera2_Manual.this, item.previewUri, item.folderId + "_1.jpg");
+                        String localId = item.localFolderId != null && !item.localFolderId.isEmpty()
+                                ? item.localFolderId : item.folderId;
+                        File f = MonoFolderImages.resolveFileFromUri(
+                                Activity_Camera2_Manual.this,
+                                item.previewUri,
+                                MonoGalleryFolderIds.localPhotoFileName(localId));
                         if (f == null || !f.exists()) throw new Exception("Không đọc được file local");
-                        ApiService.uploadMonoPhotoWithName(token, item.folderId, f, "1.jpg");
+                        String uploadFolderId = MonoGalleryFolderIds.upgradeLocalFolderId(
+                                localId, Activity_Camera2_Manual.this);
+                        ApiService.uploadMonoGalleryPhoto(
+                                Activity_Camera2_Manual.this, token, uploadFolderId, f, "1.jpg");
                         runOnUiThread(() -> {
                             Toast.makeText(Activity_Camera2_Manual.this, "Đồng bộ thành công", Toast.LENGTH_SHORT).show();
                             reloadData.run();
@@ -2603,8 +2616,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 if (PrinterTestMode.isEnabled(Activity_Camera2_Manual.this)) {
                     try {
                         // Cùng folderId cho local + server (tránh lệch tên)
-                        final String monoFolderNameTest = generateMonoServerFolderId();
-                        final String monoLocalPhotoNameTest = monoFolderNameTest + "_1.jpg";
+                        final String monoFolderNameTest = MonoGalleryFolderIds.generate(Activity_Camera2_Manual.this);
+                        final String monoLocalPhotoNameTest = MonoGalleryFolderIds.localPhotoFileName(monoFolderNameTest);
                         Bitmap fullPageT = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, 576);
                         if (fullPageT == null) {
                             fullPageT = combinedBitmapColor != null ? combinedBitmapColor : combinedBitmap;
@@ -2643,8 +2656,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                 } else {
                 File combinedFileForDrive = null;
                 String combinedNameForDrive = null;
-                final String monoFolderName = generateMonoServerFolderId();
-                final String monoLocalPhotoName = monoFolderName + "_1.jpg";
+                final String monoFolderName = MonoGalleryFolderIds.generate(Activity_Camera2_Manual.this);
+                final String monoLocalPhotoName = MonoGalleryFolderIds.localPhotoFileName(monoFolderName);
                 Bitmap fullPageForFile = Utility.buildVerticalStackForPrintWidth(combinedBitmapColor, image, PRINT_THREE_INCH);
                 try {
                     Bitmap sourceForDrive = fullPageForFile != null
@@ -2855,29 +2868,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
     }
 
-    /**
-     * folderId Mono: {@code yyyyMMddHHmmss} + mã máy (6) + 10 ký tự random.
-     * Ví dụ: {@code 202608151543293VGMHWab12cd34ef}
-     */
-    private String generateMonoServerFolderId() {
-        String datePart = new java.text.SimpleDateFormat("yyyyMMddHHmmss", Locale.US).format(new java.util.Date());
-        String machinePart = "";
-        try {
-            String mc = MachineManager.getInstance(this).getMachineCode();
-            if (mc != null) {
-                machinePart = mc.trim().toUpperCase(Locale.US);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "generateMonoServerFolderId: không lấy được machineCode", e);
-        }
-        Random r = new Random();
-        StringBuilder randomPart = new StringBuilder(10);
-        for (int i = 0; i < 10; i++) {
-            randomPart.append(MONO_FOLDER_ID_CHARS.charAt(r.nextInt(MONO_FOLDER_ID_CHARS.length())));
-        }
-        return datePart + machinePart + randomPart;
-    }
-
     /** Upload server trên luồng riêng — không chặn hàng đợi in. */
     private void scheduleServerUpload(@Nullable File uploadFile, String folderName) {
         if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
@@ -2895,8 +2885,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     Log.e(TAG, "Upload Mono server: thiếu token");
                     return;
                 }
-                org.json.JSONObject uploadRes = ApiService.uploadMonoPhotoWithName(
-                        token, folderId, fileToUpload, "1.jpg");
+                org.json.JSONObject uploadRes = ApiService.uploadMonoGalleryPhoto(
+                        Activity_Camera2_Manual.this, token, folderId, fileToUpload, "1.jpg");
                 Log.d(TAG, "Upload Mono server OK: " + uploadRes.optString("folderId", folderId));
             } catch (Exception e) {
                 Log.e(TAG, "Upload Mono server lỗi", e);

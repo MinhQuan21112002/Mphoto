@@ -89,14 +89,24 @@ public final class MonoGalleryCleanup {
             if (!isExpired(item.folderId, item.time, cutoffMs)) {
                 continue;
             }
-            if (serverIds.contains(item.folderId)) {
-                serverIdsToDelete.add(item.folderId);
+            if (MonoGalleryFolderIds.isSyncedOnServer(item.folderId, serverIds)) {
+                serverIdsToDelete.add(
+                    MonoGalleryFolderIds.resolveCanonicalServerId(item.folderId, serverIds));
             }
         }
 
         if (canDeleteServer) {
             for (String folderId : serverIds) {
-                if (localByFolderId.containsKey(folderId)) {
+                boolean hasLocal = localByFolderId.containsKey(folderId);
+                if (!hasLocal) {
+                    for (MonoFolderImages.LocalGalleryItem local : localByFolderId.values()) {
+                        if (MonoGalleryFolderIds.matchesServerGalleryId(local.folderId, folderId)) {
+                            hasLocal = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasLocal) {
                     continue;
                 }
                 if (isExpired(folderId, 0L, cutoffMs)) {
@@ -138,9 +148,10 @@ public final class MonoGalleryCleanup {
             }
             // Còn trên server + đang sync được → chỉ xóa local sau khi server đã xóa OK.
             // Không còn trên server (hoặc chưa sync) → xóa local luôn (kể cả lần mở app sau).
-            boolean onServer = serverIds.contains(item.folderId);
+            boolean onServer = MonoGalleryFolderIds.isSyncedOnServer(item.folderId, serverIds);
+            String canonicalId = MonoGalleryFolderIds.resolveCanonicalServerId(item.folderId, serverIds);
             if (onServer && canDeleteServer) {
-                if (!serverDeleted.contains(item.folderId)) {
+                if (!serverDeleted.contains(canonicalId) && !serverDeleted.contains(item.folderId)) {
                     localSkipped++;
                     continue;
                 }

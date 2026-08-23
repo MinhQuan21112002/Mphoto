@@ -19,6 +19,7 @@ public class SocketService {
 
     private static SocketService instance;
     private Socket socket;
+    private android.content.Context appContext;
 
     private String pendingMachineRoomId;
     private String pendingMachineAppRoomId;
@@ -67,6 +68,28 @@ public class SocketService {
                 Log.e(TAG, "Socket connect error: " + args[0]);
             }
         });
+        socket.on("gallery:upload-method-changed", args -> {
+            try {
+                if (args == null || args.length == 0 || !(args[0] instanceof JSONObject)) {
+                    return;
+                }
+                JSONObject data = (JSONObject) args[0];
+                String method = data.optString("galleryUploadMethod", "server");
+                if (appContext != null) {
+                    GalleryUploadMethodService.getInstance(appContext).apply(method);
+                    Log.d(TAG, "gallery:upload-method-changed → " + method);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error handling gallery:upload-method-changed", e);
+            }
+        });
+    }
+
+    /** Gắn Application context để nhận realtime galleryUploadMethod. */
+    public void attachAppContext(android.content.Context context) {
+        if (context != null) {
+            this.appContext = context.getApplicationContext();
+        }
     }
 
     public void connect() {
