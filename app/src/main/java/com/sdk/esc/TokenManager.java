@@ -18,17 +18,19 @@ public class TokenManager {
     private static final String KEY_USER_ID = "user_id";
     private static final String KEY_EMAIL = "user_email";
     private static final String KEY_USERNAME = "user_name";
-    /** Thời điểm đăng nhập gần nhất — phiên tối đa 6 ngày (độc lập hết hạn JWT nếu JWT dài hơn). */
+    /** Thời điểm đăng nhập gần nhất — phiên theo policy admin. */
     private static final String KEY_LOGIN_EPOCH_MS = "login_epoch_ms";
+    /** @deprecated dùng SessionPolicyService */
+    private static final long SESSION_MAX_MS = 6L * 24 * 60 * 60 * 1000L;
     /** Dùng app không đăng nhập — không có JWT, không gọi API cloud. */
     private static final String KEY_GUEST_MODE = "guest_mode";
-    private static final long SESSION_MAX_MS = 6L * 24 * 60 * 60 * 1000L;
-
     private static TokenManager instance;
+    private final Context appContext;
     private SharedPreferences prefs;
 
     private TokenManager(Context context) {
-        prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        appContext = context.getApplicationContext();
+        prefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
     }
 
     public static synchronized TokenManager getInstance(Context context) {
@@ -136,14 +138,23 @@ public class TokenManager {
             long iatMs = getJwtIatMs(token);
             long start = (iatMs > 0) ? iatMs : System.currentTimeMillis();
             prefs.edit().putLong(KEY_LOGIN_EPOCH_MS, start).apply();
-        } else {
-            long started = prefs.getLong(KEY_LOGIN_EPOCH_MS, 0L);
-            if (started > 0L && System.currentTimeMillis() - started > SESSION_MAX_MS) {
-                clearToken();
-                return false;
-            }
+        }
+        long started = prefs.getLong(KEY_LOGIN_EPOCH_MS, 0L);
+        SessionPolicyService policy = SessionPolicyService.getInstance(appContext);
+        if (policy.shouldForceLogout(started)) {
+            policy.acknowledgeForceLogout();
+            clearToken();
+            return false;
+        }
+        if (started > 0L && policy.isSessionPolicyExpired(started, token)) {
+            clearToken();
+            return false;
         }
         return true;
+    }
+
+    public long getLoginEpochMs() {
+        return prefs.getLong(KEY_LOGIN_EPOCH_MS, 0L);
     }
 
     /** Giây phát hành JWT (iat), đổi ra ms. */

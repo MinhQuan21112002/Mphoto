@@ -57,6 +57,67 @@ public class LoginActivity extends AppCompatActivity {
         if (languageButton != null) {
             languageButton.setOnClickListener(v -> showLanguagePicker());
         }
+        setupApiServerButton();
+    }
+
+    private void setupApiServerButton() {
+        Button apiServerButton = findViewById(R.id.apiServerButton);
+        if (apiServerButton == null) return;
+        if (!ApiConfig.allowEnvironmentSwitch()) {
+            apiServerButton.setVisibility(View.GONE);
+            return;
+        }
+        apiServerButton.setVisibility(View.VISIBLE);
+        refreshApiServerButton(apiServerButton);
+        apiServerButton.setOnClickListener(v -> showApiServerPicker(apiServerButton));
+    }
+
+    private void refreshApiServerButton(Button btn) {
+        btn.setText("Máy chủ: " + ApiConfig.getEnvironmentDisplayName()
+                + "\n" + ApiConfig.getBaseUrl());
+    }
+
+    private void showApiServerPicker(Button apiServerButton) {
+        final String[] labels = new String[]{"Railway (production)", "Local / Test"};
+        final boolean[] localSelected = {ApiConfig.isLocal()};
+        EditText localIpInput = new EditText(this);
+        localIpInput.setHint("IP máy tính (vd: 192.168.0.5)");
+        localIpInput.setText(ApiConfig.getLocalHostIp());
+        localIpInput.setEnabled(localSelected[0]);
+        localIpInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        localIpInput.setPadding(48, 24, 48, 24);
+
+        TextView portHint = new TextView(this);
+        portHint.setText("Tự thêm http:// và cổng :5000");
+        portHint.setPadding(48, 0, 48, 16);
+
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setPadding(24, 16, 24, 8);
+        box.addView(portHint);
+        box.addView(localIpInput);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Máy chủ API (debug)")
+                .setSingleChoiceItems(labels, localSelected[0] ? 1 : 0, (d, which) -> {
+                    localSelected[0] = which == 1;
+                    localIpInput.setEnabled(localSelected[0]);
+                })
+                .setView(box)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton("Áp dụng", (d, w) -> {
+                    if (localSelected[0]) {
+                        ApiConfig.setLocalBaseUrl(localIpInput.getText().toString(), true);
+                        ApiConfig.applyEnvironment(ApiConfig.ENV_LOCAL, true);
+                    } else {
+                        ApiConfig.applyEnvironment(ApiConfig.ENV_PRODUCTION, true);
+                    }
+                    SocketService.getInstance().reconnectForApiConfig();
+                    refreshApiServerButton(apiServerButton);
+                    Toast.makeText(this, "Đang dùng " + ApiConfig.getEnvironmentDisplayName()
+                            + "\n" + ApiConfig.getBaseUrl(), Toast.LENGTH_SHORT).show();
+                })
+                .show();
     }
 
     private void applyLocaleFromPrefs() {
@@ -135,6 +196,8 @@ public class LoginActivity extends AppCompatActivity {
                                 if (uid != null) {
                                     tokenManager.setUserIdFromApi(uid);
                                 }
+                                SessionPolicyService.getInstance(LoginActivity.this)
+                                        .onLoginFromUserJson(user);
                             }
                             if (response.has("name")) {
                                 tokenManager.saveUsername(response.getString("name"));

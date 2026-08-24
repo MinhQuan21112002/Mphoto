@@ -851,7 +851,7 @@ public class Activity_Camera2 extends AppCompatActivity {
     }
 
     private String buildMonoServerGalleryUrl(String folderName) {
-        return ApiService.BASE_URL + "/mono-results/g/" + folderName;
+        return ApiService.getApiBaseUrl() + "/mono-results/g/" + folderName;
     }
 
     public void printQR(final Bitmap bitmap, final int light, final int size,
@@ -1260,6 +1260,11 @@ public class Activity_Camera2 extends AppCompatActivity {
                     // Khi session đã sẵn sàng, bắt đầu hiển thị preview
                     cameraCaptureSessions = cameraCaptureSession;
                     updatePreview();
+                    try {
+                        SocketService.getInstance()
+                                .attachControlPageBridge(Activity_Camera2.this, textureView);
+                    } catch (Exception ignored) {
+                    }
                 }
 
                 @Override
@@ -1404,6 +1409,7 @@ public class Activity_Camera2 extends AppCompatActivity {
                 runOnUiThread(() -> {
                     SocketService socketService = SocketService.getInstance();
                     socketService.attachAppContext(Activity_Camera2.this);
+                    socketService.attachControlPageBridge(Activity_Camera2.this, textureView);
                     socketService.connect();
                     final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
                     final Runnable tryJoin = new Runnable() {
@@ -1415,6 +1421,11 @@ public class Activity_Camera2 extends AppCompatActivity {
                             if (socketService.isConnected()) {
                                 socketService.joinMachineRoom(machineIdUpper);
                                 socketService.joinMachineAppRoom(machineIdUpper, "android", "mono");
+                                String token = TokenManager.getInstance(Activity_Camera2.this).getToken();
+                                if (token != null && !token.isEmpty()) {
+                                    socketService.joinUserRoom(token);
+                                }
+                                socketService.emitCameraSettingsForControlPage(true);
                                 Log.d(TAG, "Joined machine-app room (mono): " + machineIdUpper);
                                 return;
                             }
@@ -1492,6 +1503,10 @@ public class Activity_Camera2 extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        try {
+            SocketService.getInstance().clearControlPageBridge();
+        } catch (Exception ignored) {
+        }
         stopClickButtonBlink();
         executorService.shutdownNow();
         uploadExecutorService.shutdownNow();

@@ -119,6 +119,21 @@
                     android:fontFamily="sans-serif-medium"/>
 
                 <Button
+                    android:id="@+id/apiServerButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@android:color/transparent"
+                    android:textAllCaps="false"
+                    android:textColor="@color/mp_brand_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    android:fontFamily="sans-serif-medium"
+                    tools:text="Máy chủ: RAILWAY"
+                    tools:visibility="visible"/>
+
+                <Button
                     android:id="@+id/guestButton"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"

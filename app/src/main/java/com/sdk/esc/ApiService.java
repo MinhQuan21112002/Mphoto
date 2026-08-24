@@ -23,16 +23,19 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * API đăng nhập giống Mphoto-Android (POST /api/auth/login, GET /api/auth/validate).
- * Đổi {@link #BASE_URL} nếu server thay đổi.
+ * API login/upload ? base URL theo {@link ApiConfig} (debug: local/Railway; release: Railway).
  */
 public class ApiService {
     private static final String TAG = "ApiService";
-    public static final String BASE_URL = "https://mphoto.up.railway.app/api";
+
+    /** REST base .../api theo ApiConfig. */
+    public static String getApiBaseUrl() {
+        return ApiConfig.getApiUrl();
+    }
 
     public static JSONObject login(String email, String password) {
         try {
-            URL url = new URL(BASE_URL + "/auth/login");
+            URL url = new URL(getApiBaseUrl() + "/auth/login");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
@@ -82,7 +85,7 @@ public class ApiService {
      */
     public static JSONArray getJsonArrayAuthed(String pathAfterApi, String token) throws Exception {
         String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
-        URL url = new URL(BASE_URL + path);
+        URL url = new URL(getApiBaseUrl() + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -121,7 +124,7 @@ public class ApiService {
      */
     public static JSONObject getJsonObjectAuthed(String pathAfterApi, String token) throws Exception {
         String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
-        URL url = new URL(BASE_URL + path);
+        URL url = new URL(getApiBaseUrl() + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -161,7 +164,7 @@ public class ApiService {
     @Nullable
     public static JSONObject getJsonObjectAuthedOrNullOn404(String pathAfterApi, String token) throws Exception {
         String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
-        URL url = new URL(BASE_URL + path);
+        URL url = new URL(getApiBaseUrl() + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -208,7 +211,7 @@ public class ApiService {
      */
     public static void putJsonObjectAuthed(String pathAfterApi, String token, JSONObject body) throws Exception {
         String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
-        URL url = new URL(BASE_URL + path);
+        URL url = new URL(getApiBaseUrl() + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("PUT");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -302,7 +305,7 @@ public class ApiService {
 
     public static boolean validateToken(String token) {
         try {
-            URL url = new URL(BASE_URL + "/auth/validate");
+            URL url = new URL(getApiBaseUrl() + "/auth/validate");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -327,7 +330,7 @@ public class ApiService {
             throw new Exception("Ảnh upload không tồn tại");
         }
         String boundary = "----MphotoMonoBoundary" + UUID.randomUUID();
-        URL url = new URL(BASE_URL + "/mono-results/upload-with-name");
+        URL url = new URL(getApiBaseUrl() + "/mono-results/upload-with-name");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -542,7 +545,7 @@ public class ApiService {
 
     private static JSONObject postJsonAuthed(String pathAfterApi, String token, JSONObject body) throws Exception {
         String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
-        URL url = new URL(BASE_URL + path);
+        URL url = new URL(getApiBaseUrl() + path);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -627,7 +630,7 @@ public class ApiService {
         JSONObject body = new JSONObject();
         body.put("galleryIds", idsJson);
 
-        URL url = new URL(BASE_URL + "/mono-results/delete-galleries");
+        URL url = new URL(getApiBaseUrl() + "/mono-results/delete-galleries");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -743,7 +746,7 @@ public class ApiService {
     /** POST /api/machines — tạo máy (Device Manager). */
     public static JSONObject createMachine(String token, String machineCode) {
         try {
-            URL url = new URL(BASE_URL + "/machines");
+            URL url = new URL(getApiBaseUrl() + "/machines");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
@@ -788,7 +791,7 @@ public class ApiService {
     public static JSONObject getMachine(String token, String machineCode) {
         lastGetMachineHttpStatus = 0;
         try {
-            URL url = new URL(BASE_URL + "/machines/" + machineCode);
+            URL url = new URL(getApiBaseUrl() + "/machines/" + machineCode);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Authorization", "Bearer " + token);
@@ -828,7 +831,7 @@ public class ApiService {
                 return false;
             }
 
-            URL url = new URL(BASE_URL + "/mobile-upload/machine/" + machineCode + "/update-random-code");
+            URL url = new URL(getApiBaseUrl() + "/mobile-upload/machine/" + machineCode + "/update-random-code");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
@@ -861,7 +864,7 @@ public class ApiService {
                     || userId == null || userId.isEmpty()) {
                 return false;
             }
-            URL url = new URL(BASE_URL + "/machines/" + machineCode + "/link-user");
+            URL url = new URL(getApiBaseUrl() + "/machines/" + machineCode + "/link-user");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("PATCH");
             conn.setRequestProperty("Content-Type", "application/json");

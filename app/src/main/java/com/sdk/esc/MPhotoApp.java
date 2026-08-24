@@ -15,6 +15,7 @@ public class MPhotoApp extends Application {
                 .putBoolean("click_button_hidden", false)
                 .apply();
         MPhotoUserDataBackup.restoreIfPrefsEmpty(this);
+        ApiConfig.init(this);
         MonoCacheSync.migrateLegacyInternalCacheToAppUserAssetsIfNeeded(this);
         UserAssetFileStore.migrateListToFileTokensIfNeeded(this);
         MPhotoUserDataBackup.scheduleSave(this);

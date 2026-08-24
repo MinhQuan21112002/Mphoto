@@ -18,12 +18,14 @@ public final class GalleryUploadMethodService {
     public static final String METHOD_SIGNED_URL = "signedUrl";
 
     private static GalleryUploadMethodService instance;
+    private final Context appContext;
     private final SharedPreferences prefs;
     private final Object gate = new Object();
     private String method = METHOD_SERVER;
 
     private GalleryUploadMethodService(Context context) {
-        prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        appContext = context.getApplicationContext();
+        prefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         String saved = prefs.getString(KEY_METHOD, METHOD_SERVER);
         method = METHOD_SIGNED_URL.equalsIgnoreCase(saved) ? METHOD_SIGNED_URL : METHOD_SERVER;
     }
@@ -59,7 +61,6 @@ public final class GalleryUploadMethodService {
         Log.d(TAG, "galleryUploadMethod = " + next);
     }
 
-    /** Gọi API status — chạy trên background thread. */
     public void syncFromServer(String token) {
         if (token == null || token.isEmpty()) {
             return;
@@ -68,6 +69,7 @@ public final class GalleryUploadMethodService {
             org.json.JSONObject status = ApiService.getMobileUploadStatus(token);
             if (status != null) {
                 apply(status.optString("galleryUploadMethod", METHOD_SERVER));
+                SessionPolicyService.getInstance(appContext).syncFromStatusJson(status);
             }
         } catch (Exception e) {
             Log.w(TAG, "syncFromServer failed: " + e.getMessage());

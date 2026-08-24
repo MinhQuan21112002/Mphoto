@@ -22,9 +22,23 @@ android {
         viewBinding {
             enabled = true
         }
+        buildFeatures {
+            buildConfig = true
+        }
         packagingOptions {
             exclude 'META-INF/DEPENDENCIES'
         }
+    }
+
+    lint {
+        checkReleaseBuilds true
+        abortOnError true
+    }
+
+    configurations.all {
+        exclude group: 'commons-logging', module: 'commons-logging'
+        exclude group: 'org.apache.httpcomponents', module: 'httpclient'
+        exclude group: 'org.json', module: 'json'
     }
 
     android.applicationVariants.all { variant ->
@@ -37,6 +51,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
         }
     }
 
@@ -95,9 +110,15 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.10.1'
 
     //Google Drive
-    dependencies {
-        implementation 'com.google.api-client:google-api-client-android:1.33.0'
-        implementation 'com.google.apis:google-api-services-drive:v3-rev197-1.25.0'
+    implementation('com.google.api-client:google-api-client-android:1.33.0') {
+        exclude group: 'org.apache.httpcomponents'
+        exclude group: 'commons-logging'
+        exclude group: 'org.json', module: 'json'
+    }
+    implementation('com.google.apis:google-api-services-drive:v3-rev197-1.25.0') {
+        exclude group: 'org.apache.httpcomponents'
+        exclude group: 'commons-logging'
+        exclude group: 'org.json', module: 'json'
     }
 
     //implementation 'org.opencv:opencv-android:4.10.0'

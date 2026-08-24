@@ -2764,7 +2764,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     }
 
     private String buildMonoServerGalleryUrl(String folderName) {
-        return ApiService.BASE_URL + "/mono-results/g/" + folderName;
+        return ApiService.getApiBaseUrl() + "/mono-results/g/" + folderName;
     }
 
     @Nullable
