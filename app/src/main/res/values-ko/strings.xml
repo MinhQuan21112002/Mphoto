@@ -51,4 +51,8 @@
     <string name="login_confirm_message">로그인 화면으로 이동할까요?</string>
     <string name="login_confirm_yes">로그인</string>
 
+    <string name="durable_storage_required_title">기기 코드 저장 권한 필요</string>
+    <string name="durable_storage_required_message">M-Photo Mono는 기기 코드를 저장하려면 \"모든 파일 관리 허용\" 권한이 필요합니다 (앱 삭제 후 재설치해도 유지).\n\n계속하려면 이 권한을 켜주세요.</string>
+    <string name="durable_storage_required_open_settings">권한 켜기</string>
+    <string name="durable_storage_required_exit">앱 종료</string>
 </resources>

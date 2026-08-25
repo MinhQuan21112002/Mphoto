@@ -32,9 +32,9 @@ public final class MonoFolderImages {
     public static final int PAGE_SIZE = 10;
     /** 12 lần × 10 ảnh */
     public static final int MAX_ITEMS = 120;
-    /** Mới: 14 số ngày giờ + 6 mã máy + 10 random. Cũ: 14 số + 10 random (không mã máy). */
+    /** Mới: 14 số + mã máy. Cũ: +10 random; hoặc 14+10 không mã máy. */
     private static final Pattern LOCAL_GALLERY_FILE =
-            Pattern.compile("^([0-9]{14}(?:[A-Za-z0-9]{6})?[A-Za-z0-9]{10})_1\\.(jpg|jpeg)$", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("^([0-9]{14}[A-Za-z0-9]*)_1\\.(jpg|jpeg)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern LEGACY_LOCAL_FILE = Pattern.compile("^(\\d{8})_(\\d{6})_(\\d{10})\\.(jpg|jpeg)$");
 
     public static final class LocalGalleryItem {
@@ -223,7 +223,7 @@ public final class MonoFolderImages {
             if (folderId == null || folderId.trim().isEmpty()) {
                 continue;
             }
-            // Chuẩn hóa: nếu tên file đủ 30 ký tự (có mã máy) giữ nguyên; legacy 24 ký tự vẫn giữ
+            // Chuẩn hóa: giữ folderId từ tên file (mới ~20 ký tự; cũ 24/30 vẫn đọc được)
             folderId = folderId.trim();
             long t = System.currentTimeMillis();
             if (ContentResolver.SCHEME_FILE.equals(uri.getScheme())) {

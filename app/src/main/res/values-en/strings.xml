@@ -51,4 +51,8 @@
     <string name="login_confirm_message">Go to the sign-in screen?</string>
     <string name="login_confirm_yes">Sign in</string>
 
+    <string name="durable_storage_required_title">Storage permission required</string>
+    <string name="durable_storage_required_message">M-Photo Mono needs \"Allow management of all files\" to save the machine code on this device (keeps it after uninstall/reinstall).\n\nPlease enable this permission to continue.</string>
+    <string name="durable_storage_required_open_settings">Enable permission</string>
+    <string name="durable_storage_required_exit">Exit app</string>
 </resources>

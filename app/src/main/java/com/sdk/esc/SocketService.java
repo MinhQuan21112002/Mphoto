@@ -1,6 +1,10 @@
 package com.sdk.esc;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
 import android.view.TextureView;
@@ -16,7 +20,7 @@ import io.socket.client.Socket;
 /**
  * Socket presence cho Device Manager — join machine-app + machine room (giống Lite/mlite).
  * Product cố định: mono; platform: android.
- * Control Page: stream live view camera trước qua evf-frame-update.
+ * Control Page: live view + remote ISO/exposure/khung/ảnh phụ/chụp/in.
  */
 public class SocketService {
     private static final String TAG = "SocketService";
@@ -26,6 +30,7 @@ public class SocketService {
     private Socket socket;
     private android.content.Context appContext;
     private String boundSocketUrl;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private String pendingMachineRoomId;
     private String pendingMachineAppRoomId;
@@ -36,6 +41,7 @@ public class SocketService {
     private FrontCameraEvfStreamer evfStreamer;
     private volatile boolean evfWanted;
     private WeakReference<TextureView> previewTextureRef = new WeakReference<>(null);
+    private WeakReference<ControlPageCommandHost> commandHostRef = new WeakReference<>(null);
 
     private SocketService() {
         ensureSocket();
@@ -149,6 +155,11 @@ public class SocketService {
             if (!machineMatches(coerceJsonObject(args))) return;
             emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
         });
+        socket.on("camera-command", args -> {
+            JSONObject data = coerceJsonObject(args);
+            if (!machineMatches(data)) return;
+            handleCameraCommand(data);
+        });
     }
 
     private boolean machineMatches(JSONObject data) {
@@ -176,14 +187,46 @@ public class SocketService {
             attachAppContext(activity);
         }
         previewTextureRef = new WeakReference<>(previewTexture);
+        if (activity instanceof ControlPageCommandHost) {
+            commandHostRef = new WeakReference<>((ControlPageCommandHost) activity);
+        }
         if (evfWanted) {
             startEvfStreaming();
         }
+        emitCameraSettingsForControlPage(true);
+    }
+
+    public void attachControlPageHost(ControlPageCommandHost host) {
+        commandHostRef = new WeakReference<>(host);
+        if (host instanceof Activity) {
+            attachAppContext((Activity) host);
+        }
+        emitCameraSettingsForControlPage(true);
     }
 
     public void clearControlPageBridge() {
         previewTextureRef = new WeakReference<>(null);
+        commandHostRef = new WeakReference<>(null);
         stopEvfStreaming();
+    }
+
+    public void notifyControlPageSettingsChanged() {
+        emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
+    }
+
+    public void emitCaptureCountdown(int remaining, int total) {
+        if (socket == null || !socket.connected()) return;
+        String mc = resolveMachineCode();
+        if (mc == null || mc.isEmpty()) return;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("machineCode", mc.toUpperCase());
+            payload.put("remaining", remaining);
+            payload.put("total", total);
+            socket.emit("capture-countdown-update", payload);
+        } catch (Exception e) {
+            Log.w(TAG, "emitCaptureCountdown: " + e.getMessage());
+        }
     }
 
     private void startEvfStreaming() {
@@ -252,20 +295,217 @@ public class SocketService {
         if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
         if (mc == null || mc.isEmpty()) return;
+        Context ctx = appContext;
         try {
             JSONObject payload = new JSONObject();
             payload.put("machineCode", mc.toUpperCase());
             payload.put("isCameraConnected", cameraConnected);
-            payload.put("appWindowState", "capture");
             payload.put("appProduct", APP_PRODUCT);
             payload.put("appPlatform", "android");
             payload.put("liveViewSource", "front");
             payload.put("controlPageLiveViewSource", "Webcam");
+
+            ControlPageCommandHost host = commandHostRef.get();
+            String windowState = host != null ? host.getControlPageWindowState() : "main";
+            if (windowState == null || windowState.isEmpty()) windowState = "main";
+            payload.put("appWindowState", windowState);
+            payload.put("monoPostCapturePending", host != null && host.isMonoPostCapturePending());
+
+            if (ctx != null) {
+                SharedPreferences cam = ctx.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
+                String iso = cam.getString("isovalue", "400");
+                String exposure = cam.getString("epxvalue", "30000000");
+                payload.put("monoIso", iso);
+                payload.put("monoIsoLabel", iso);
+                payload.put("monoExposure", exposure);
+                payload.put("monoExposureLabel", exposureLabel(exposure));
+
+                SharedPreferences framePrefs = ctx.getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+                payload.put("monoFrameIndex", framePrefs.getInt("current_index", 0));
+                SharedPreferences subPrefs = ctx.getSharedPreferences("MyAppPrefs2", Context.MODE_PRIVATE);
+                payload.put("monoSubIndex", subPrefs.getInt("indexImageView2", 0));
+
+                int printMode = PrintBitmapMode.get(ctx);
+                payload.put("monoPrintMode", printMode);
+                String[] labels = PrintBitmapMode.labels(ctx);
+                int li = PrintBitmapMode.indexOf(printMode);
+                payload.put("monoPrintModeLabel",
+                        (li >= 0 && li < labels.length) ? labels[li] : String.valueOf(printMode));
+                payload.put("monoPrinterTest", PrinterTestMode.isEnabled(ctx));
+                payload.put("monoQrPrint", ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                        .getBoolean("Download", false));
+                payload.put("monoClickButtonHidden", ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                        .getBoolean("click_button_hidden", false));
+            }
+
             socket.emit("camera-settings-update", payload);
-            Log.d(TAG, "camera-settings-update connected=" + cameraConnected);
+            Log.d(TAG, "camera-settings-update connected=" + cameraConnected
+                    + " state=" + windowState);
         } catch (Exception e) {
             Log.e(TAG, "emitCameraSettingsForControlPage", e);
         }
+    }
+
+    private static String exposureLabel(String ns) {
+        if (ns == null) return "—";
+        try {
+            long v = Long.parseLong(ns.trim());
+            if (v <= 0) return "—";
+            double sec = v / 1_000_000_000.0;
+            if (sec < 1.0) return String.format(java.util.Locale.US, "%.1fs", sec);
+            if (Math.abs(sec - Math.rint(sec)) < 0.05) return ((int) Math.rint(sec)) + "s";
+            return String.format(java.util.Locale.US, "%.1fs", sec);
+        } catch (Exception e) {
+            return ns;
+        }
+    }
+
+    private void handleCameraCommand(JSONObject data) {
+        if (data == null) return;
+        String property = data.optString("property", "").trim();
+        if (property.isEmpty()) return;
+        int value = data.optInt("value", 0);
+        String stringValue = data.optString("stringValue", "");
+        String prop = property.toLowerCase(java.util.Locale.ROOT);
+        Log.d(TAG, "camera-command " + prop + " value=" + value + " str=" + stringValue);
+
+        mainHandler.post(() -> {
+            ControlPageCommandHost host = commandHostRef.get();
+            Context ctx = appContext;
+            try {
+                switch (prop) {
+                    case "set-iso":
+                    case "mono-set-iso": {
+                        String iso = !stringValue.isEmpty() ? stringValue : String.valueOf(value);
+                        if (host != null) host.onControlPageSetIso(iso);
+                        else if (ctx != null) {
+                            ctx.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
+                                    .edit().putString("isovalue", iso).apply();
+                        }
+                        break;
+                    }
+                    case "set-exposure":
+                    case "mono-set-exposure": {
+                        String exp = !stringValue.isEmpty() ? stringValue : String.valueOf(value);
+                        if (host != null) host.onControlPageSetExposure(exp);
+                        else if (ctx != null) {
+                            ctx.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE)
+                                    .edit().putString("epxvalue", exp).apply();
+                        }
+                        break;
+                    }
+                    case "mono-set-print-mode":
+                        if (host != null) host.onControlPageSetPrintMode(value);
+                        else if (ctx != null) PrintBitmapMode.set(ctx, value);
+                        break;
+                    case "mono-set-printer-test":
+                        if (host != null) host.onControlPageSetPrinterTest(value != 0);
+                        else if (ctx != null) PrinterTestMode.setEnabled(ctx, value != 0);
+                        break;
+                    case "mono-set-qr-print":
+                        if (host != null) host.onControlPageSetQrPrint(value != 0);
+                        else if (ctx != null) {
+                            ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                                    .edit().putBoolean("Download", value != 0).apply();
+                        }
+                        break;
+                    case "mono-set-click-button-hidden":
+                        if (host != null) host.onControlPageSetClickButtonHidden(value != 0);
+                        else if (ctx != null) {
+                            ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
+                                    .edit().putBoolean("click_button_hidden", value != 0).apply();
+                        }
+                        break;
+                    case "web-apply-mono-frame":
+                    case "mono-apply-frame":
+                        // Async (có thể sync rồi mới apply) — host tự notify sau onApplied
+                        if (host != null) host.onControlPageSelectFrame(stringValue);
+                        else Log.w(TAG, "web-apply-mono-frame: no command host");
+                        return;
+                    case "web-apply-mono-sub":
+                    case "mono-apply-sub":
+                        if (host != null) host.onControlPageSelectSubPhoto(stringValue);
+                        else Log.w(TAG, "web-apply-mono-sub: no command host");
+                        return;
+                    case "capture":
+                        if (host != null) host.onControlPageCapture();
+                        break;
+                    case "mono-print":
+                    case "web-print":
+                        if (host != null) host.onControlPagePrint();
+                        break;
+                    case "mono-cancel":
+                        if (host != null) host.onControlPageCancelPostCapture();
+                        break;
+                    case "navigate-back-to-main":
+                    case "mono-back-to-main":
+                        if (host != null) host.onControlPageNavigateBackToMain();
+                        break;
+                    case "web-request-mono-frames":
+                        syncMonoFramesThenNotify();
+                        return;
+                    case "web-request-mono-subs":
+                        syncMonoSubsThenNotify();
+                        return;
+                    default:
+                        Log.d(TAG, "camera-command ignored: " + prop);
+                        return;
+                }
+                emitCameraSettingsForControlPage(true);
+            } catch (Exception e) {
+                Log.e(TAG, "handleCameraCommand " + prop, e);
+            }
+        });
+    }
+
+    private void syncMonoFramesThenNotify() {
+        if (appContext == null) return;
+        String token = TokenManager.getInstance(appContext).getToken();
+        if (token == null || token.isEmpty()) {
+            emitCameraSettingsForControlPage(true);
+            return;
+        }
+        MonoCacheSync.syncFramesInBackground(appContext, token, new MonoCacheSync.Listener() {
+            @Override
+            public void onSuccess() {
+                ControlPageCommandHost host = commandHostRef.get();
+                if (host instanceof Activity) {
+                    ((Activity) host).runOnUiThread(() -> {
+                        // refresh UI if host implements optional refresh via select current
+                        emitCameraSettingsForControlPage(true);
+                    });
+                } else {
+                    emitCameraSettingsForControlPage(true);
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                Log.w(TAG, "sync frames: " + message);
+                emitCameraSettingsForControlPage(true);
+            }
+        });
+    }
+
+    private void syncMonoSubsThenNotify() {
+        if (appContext == null) return;
+        String token = TokenManager.getInstance(appContext).getToken();
+        if (token == null || token.isEmpty()) {
+            emitCameraSettingsForControlPage(true);
+            return;
+        }
+        MonoCacheSync.syncSubPhotosInBackground(appContext, token, new MonoCacheSync.Listener() {
+            @Override
+            public void onSuccess() {
+                emitCameraSettingsForControlPage(true);
+            }
+
+            @Override
+            public void onError(String message) {
+                Log.w(TAG, "sync subs: " + message);
+                emitCameraSettingsForControlPage(true);
+            }
+        });
     }
 
     private void handleSessionPolicySocket(Object[] args) {

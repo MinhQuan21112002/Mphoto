@@ -57,7 +57,8 @@ public final class UserAssetFileStore {
     }
 
     /**
-     * Lưu bitmap → file JPEG trong thư mục công khai; trả về token hoặc null nếu không ghi được.
+     * Lưu bitmap → file. Khung (isFrame) dùng PNG để giữ alpha (lỗ giữa live view).
+     * Ảnh phụ dùng JPEG.
      */
     public static String saveBitmapAsFileToken(Context ctx, Bitmap bitmap, boolean isFrame) {
         if (bitmap == null || bitmap.isRecycled()) {
@@ -67,12 +68,17 @@ public final class UserAssetFileStore {
             return null;
         }
         String mphoto = isFrame ? REL_FRAMES : REL_SUBS;
+        String ext = isFrame ? ".png" : ".jpg";
         String display = "u_" + System.currentTimeMillis()
-            + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8) + ".jpg";
+            + "_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8) + ext;
         String rel = mphoto + "/" + display;
         if (MPhotoProImageStore.useMediaStoreForPublicWrites()) {
             try {
-                MPhotoProImageStore.saveJpegBitmap(ctx, mphoto, display, bitmap);
+                if (isFrame) {
+                    MPhotoProImageStore.savePngBitmap(ctx, mphoto, display, bitmap);
+                } else {
+                    MPhotoProImageStore.saveJpegBitmap(ctx, mphoto, display, bitmap);
+                }
             } catch (IOException e) {
                 Log.w(TAG, "MediaStore write " + rel, e);
                 return null;
@@ -89,7 +95,9 @@ public final class UserAssetFileStore {
             return null;
         }
         try (FileOutputStream fos = new FileOutputStream(out)) {
-            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos)) {
+            Bitmap.CompressFormat fmt = isFrame ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG;
+            int q = isFrame ? 100 : 95;
+            if (!bitmap.compress(fmt, q, fos)) {
                 return null;
             }
             fos.flush();

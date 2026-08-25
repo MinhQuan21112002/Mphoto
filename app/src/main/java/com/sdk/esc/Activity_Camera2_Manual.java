@@ -118,7 +118,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import print.Print;
 
-public class Activity_Camera2_Manual extends AppCompatActivity {
+public class Activity_Camera2_Manual extends AppCompatActivity implements ControlPageCommandHost {
     private ProgressDialog progressDialog;
 
     ImageSolve imgSolve; // Class for image processing
@@ -163,6 +163,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     View layoutPrintCancelRow;
     Button btnPrint;
     Button btnCancel;
+    private volatile boolean monoPostCapturePending;
     ImageView imageViewPreview ;
     Bitmap image = null;
     ImageView imageViewSecond;
@@ -188,6 +189,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     private ViewGroup monoPreviewFlexContent;
     private ViewGroup frameMonoSecond;
     private int lastMonoFlexSignature = Integer.MIN_VALUE;
+    /** Dialog cài đặt đang mở — sync realtime từ Control Page. */
+    @Nullable private AlertDialog openSettingsDialog;
+    @Nullable private androidx.appcompat.widget.SwitchCompat openSettingsSwPrinterTest;
+    @Nullable private androidx.appcompat.widget.SwitchCompat openSettingsSwDownload;
+    @Nullable private Spinner openSettingsSpinnerPrintMode;
+    private boolean settingsDialogUpdatingFromRemote;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -205,6 +212,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             finish();
             return;
         }
+
+        // Bắt buộc All files access — chưa bật thì chặn app
+        MachineManager.getInstance(this).enforceDurableStorageAccessRequired(this);
 
         MonoGalleryCleanup.runInBackground(this);
 
@@ -1592,21 +1602,39 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         builder.setView(dialogView);
         builder.setNegativeButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         final AlertDialog dialog1 = builder.create();
+        openSettingsDialog = dialog1;
+        dialog1.setOnDismissListener(d -> {
+            if (openSettingsDialog == dialog1) {
+                openSettingsDialog = null;
+                openSettingsSwPrinterTest = null;
+                openSettingsSwDownload = null;
+                openSettingsSpinnerPrintMode = null;
+            }
+        });
         androidx.appcompat.widget.SwitchCompat swPrinterTest = dialogView.findViewById(R.id.switchPrinterTestMode);
+        openSettingsSwPrinterTest = swPrinterTest;
         if (swPrinterTest != null) {
             swPrinterTest.setChecked(PrinterTestMode.isEnabled(this));
-            swPrinterTest.setOnCheckedChangeListener((buttonView, isChecked) ->
-                    PrinterTestMode.setEnabled(Activity_Camera2_Manual.this, isChecked));
+            swPrinterTest.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (settingsDialogUpdatingFromRemote) return;
+                PrinterTestMode.setEnabled(Activity_Camera2_Manual.this, isChecked);
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            });
         }
         SharedPreferences prefSettings = getSharedPreferences("settings", MODE_PRIVATE);
         androidx.appcompat.widget.SwitchCompat swDownload = dialogView.findViewById(R.id.switchDownload);
+        openSettingsSwDownload = swDownload;
         if (swDownload != null) {
             swDownload.setChecked(prefSettings.getBoolean("Download", false));
-            swDownload.setOnCheckedChangeListener((buttonView, isChecked) ->
-                    prefSettings.edit().putBoolean("Download", isChecked).apply());
+            swDownload.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (settingsDialogUpdatingFromRemote) return;
+                prefSettings.edit().putBoolean("Download", isChecked).apply();
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            });
             setCloudControlEnabled(swDownload);
         }
         Spinner spinnerPrintMode = dialogView.findViewById(R.id.spinnerPrintBitmapMode);
+        openSettingsSpinnerPrintMode = spinnerPrintMode;
         if (spinnerPrintMode != null) {
             ArrayAdapter<String> modeAdapter = new ArrayAdapter<>(
                     this,
@@ -1617,7 +1645,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             spinnerPrintMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override
                 public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    if (settingsDialogUpdatingFromRemote) return;
                     PrintBitmapMode.set(Activity_Camera2_Manual.this, PrintBitmapMode.modeAt(position));
+                    SocketService.getInstance().notifyControlPageSettingsChanged();
                 }
 
                 @Override
@@ -1666,6 +1696,36 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
         dialog1.show();
         GlassDialogHelper.applyGlassWindow(dialog1);
+    }
+
+    /** Cập nhật UI dialog cài đặt khi Control Page đổi print mode / test / QR. */
+    private void refreshOpenSettingsDialogFromPrefs() {
+        if (openSettingsDialog == null || !openSettingsDialog.isShowing()) return;
+        runOnUiThread(() -> {
+            settingsDialogUpdatingFromRemote = true;
+            try {
+                if (openSettingsSwPrinterTest != null) {
+                    boolean v = PrinterTestMode.isEnabled(this);
+                    if (openSettingsSwPrinterTest.isChecked() != v) {
+                        openSettingsSwPrinterTest.setChecked(v);
+                    }
+                }
+                if (openSettingsSwDownload != null) {
+                    boolean v = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("Download", false);
+                    if (openSettingsSwDownload.isChecked() != v) {
+                        openSettingsSwDownload.setChecked(v);
+                    }
+                }
+                if (openSettingsSpinnerPrintMode != null) {
+                    int idx = PrintBitmapMode.indexOf(PrintBitmapMode.get(this));
+                    if (openSettingsSpinnerPrintMode.getSelectedItemPosition() != idx) {
+                        openSettingsSpinnerPrintMode.setSelection(idx);
+                    }
+                }
+            } finally {
+                settingsDialogUpdatingFromRemote = false;
+            }
+        });
     }
 
     /** Dialog xác nhận đăng xuất / chuyển login — cùng tone glass với settings. */
@@ -2447,6 +2507,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
                     btnCancel.setEnabled(true);
                 }
                 setLiveViewCaptureInputEnabled(false);
+                monoPostCapturePending = true;
+                try {
+                    SocketService.getInstance().notifyControlPageSettingsChanged();
+                } catch (Exception ignored) {
+                }
             } catch (Exception e) {
                 Log.e("FrameLayoutError", "show post capture", e);
             }
@@ -2470,6 +2535,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
         if (btnCancel != null) {
             btnCancel.setEnabled(false);
+        }
+        monoPostCapturePending = false;
+        try {
+            SocketService.getInstance().notifyControlPageSettingsChanged();
+        } catch (Exception ignored) {
         }
     }
 
@@ -3286,6 +3356,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
     }
     protected void stopBackgroundThread() {
+        if (mBackgroundThread == null) {
+            return;
+        }
         mBackgroundThread.quitSafely();
         try {
             mBackgroundThread.join();
@@ -3295,6 +3368,26 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
             Log.d("StopBackgroundThread", "Error " + e);
         }
     }
+
+    private void closeCamera() {
+        try {
+            if (cameraCaptureSessions != null) {
+                cameraCaptureSessions.close();
+                cameraCaptureSessions = null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "close session: " + e.getMessage());
+        }
+        try {
+            if (cameraDevice != null) {
+                cameraDevice.close();
+                cameraDevice = null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "close device: " + e.getMessage());
+        }
+    }
+
     private void takePicture() {
         if (null == cameraDevice) {
             return;
@@ -3447,6 +3540,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
     }
     private void openCamera() {
+        if (!MachineManager.hasDurableStorageAccess()) {
+            return;
+        }
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         Log.e(TAG, "is camera open");
         try {
@@ -3500,11 +3596,19 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        if (!MachineManager.getInstance(this).enforceDurableStorageAccessRequired(this)) {
+            Log.w(TAG, "Blocked until All files access is granted");
+            return;
+        }
         final boolean softSwitch = MonoScreenSwitch.consumeSoftResume();
         MonoDriveServerSync.requestSyncIfLoggedIn(this);
         startBackgroundThread();
         if (textureView != null) {
             textureView.removeCallbacks(deferredOpenCameraRunnable);
+        }
+        try {
+            SocketService.getInstance().attachControlPageBridge(this, textureView);
+        } catch (Exception ignored) {
         }
         if (softSwitch && textureView != null) {
             textureView.postDelayed(deferredOpenCameraRunnable, 300);
@@ -3525,13 +3629,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         if (imageMonoLatestThumb != null) {
             imageMonoLatestThumb.removeCallbacks(monoFolderThumbRefreshRetry);
         }
-        //closeCamera();
+        closeCamera();
         stopBackgroundThread();
         super.onPause();
     }
 
     private void openCameraIfReady() {
         if (isFinishing() || textureView == null) {
+            return;
+        }
+        if (!MachineManager.hasDurableStorageAccess()) {
             return;
         }
         if (textureView.isAvailable()) {
@@ -3577,6 +3684,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         if (imageMonoLatestThumb != null) {
             imageMonoLatestThumb.removeCallbacks(monoFolderThumbRefreshRetry);
         }
+        try {
+            SocketService.getInstance().clearControlPageBridge();
+        } catch (Exception ignored) {
+        }
         executorService.shutdownNow();
         uploadExecutorService.shutdownNow();
         super.onDestroy();
@@ -3586,9 +3697,155 @@ public class Activity_Camera2_Manual extends AppCompatActivity {
         }
     }
 
+    @Override
+    public String getControlPageWindowState() {
+        return "manual";
+    }
+
+    @Override
+    public boolean isMonoPostCapturePending() {
+        return monoPostCapturePending;
+    }
+
+    @Override
+    public void onControlPageSetIso(String isoValue) {
+        runOnUiThread(() -> {
+            applyISO(isoValue);
+            updateISO(isoValue);
+            refreshIsoExposurePanelDisplay();
+            SocketService.getInstance().notifyControlPageSettingsChanged();
+        });
+    }
+
+    @Override
+    public void onControlPageSetExposure(String exposureNs) {
+        runOnUiThread(() -> {
+            applyExpose(exposureNs);
+            updateExposure(exposureNs);
+            refreshIsoExposurePanelDisplay();
+            SocketService.getInstance().notifyControlPageSettingsChanged();
+        });
+    }
+
+    @Override
+    public void onControlPageSetPrintMode(int mode) {
+        PrintBitmapMode.set(this, mode);
+        refreshOpenSettingsDialogFromPrefs();
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSetPrinterTest(boolean enabled) {
+        PrinterTestMode.setEnabled(this, enabled);
+        refreshOpenSettingsDialogFromPrefs();
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSetQrPrint(boolean enabled) {
+        getSharedPreferences("settings", MODE_PRIVATE).edit()
+                .putBoolean("Download", enabled).apply();
+        refreshOpenSettingsDialogFromPrefs();
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSetClickButtonHidden(boolean hidden) {
+        // Pref dùng chung với Main — khi về trang chính sẽ áp dụng.
+        getSharedPreferences("settings", MODE_PRIVATE).edit()
+                .putBoolean("click_button_hidden", hidden).apply();
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSelectFrame(String frameId) {
+        MonoAssetSelectHelper.selectFrameById(this, frameId, new MonoAssetSelectHelper.AfterSelect() {
+            @Override
+            public void onApplied(int index) {
+                currentIndex = index;
+                SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+                String jsonString = preferences.getString("bitmap_list", "[]");
+                bitmapList = new Gson().fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+                updateImageView(currentIndex);
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            }
+
+            @Override
+            public void onError(String message) {
+                Toast.makeText(Activity_Camera2_Manual.this, message, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageSelectSubPhoto(String subPhotoId) {
+        MonoAssetSelectHelper.selectSubById(this, subPhotoId, new MonoAssetSelectHelper.AfterSelect() {
+            @Override
+            public void onApplied(int index) {
+                currentIndexImageView2 = index;
+                SharedPreferences p2 = getSharedPreferences("MyAppPrefs2", MODE_PRIVATE);
+                String json = p2.getString("ImageViewList", "[]");
+                bitmapListImageView2 = new Gson().fromJson(json, new TypeToken<List<String>>() {}.getType());
+                updateImageView2(currentIndexImageView2);
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            }
+
+            @Override
+            public void onError(String message) {
+                Toast.makeText(Activity_Camera2_Manual.this, message, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageCapture() {
+        runOnUiThread(() -> {
+            if (monoPostCapturePending) return;
+            if (!Print.IsOpened() && !PrinterTestMode.isEnabled(this)) {
+                Toast.makeText(this, getString(R.string.please_connect_printer), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Camera chưa sẵn (đang soft-switch Main→Manual): thử lại ngắn
+            if (cameraDevice == null) {
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (isFinishing() || monoPostCapturePending) return;
+                    if (cameraDevice == null) {
+                        Toast.makeText(this, "Camera chưa sẵn sàng, thử lại sau", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    takePicture();
+                }, 500);
+                return;
+            }
+            takePicture();
+        });
+    }
+
+    @Override
+    public void onControlPagePrint() {
+        runOnUiThread(() -> {
+            if (btnPrint != null && btnPrint.isEnabled() && monoPostCapturePending) {
+                btnPrint.performClick();
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageCancelPostCapture() {
+        runOnUiThread(() -> {
+            if (btnCancel != null && btnCancel.isEnabled() && monoPostCapturePending) {
+                btnCancel.performClick();
+            } else {
+                hidePostCaptureUi();
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageNavigateBackToMain() {
+        runOnUiThread(this::returnToMainActivity);
+    }
 
 }
-
-
 
 

@@ -99,4 +99,9 @@
     <string name="app_update_size_mismatch">Tải thiếu dữ liệu (kích thước không khớp máy chủ). Thử tải lại.</string>
     <string name="app_update_install_broken">APK bị hỏng hoặc không phải bản cài hợp lệ. Xóa file và tải lại từ Cài đặt.</string>
     <string name="app_update_is_windows_exe">Server đang trả bản cập nhật M-Photo Pro dành cho Windows (file .exe), không cài được trên Android. Ứng dụng này cần kênh M-Photo Mono (APK) trên trang quản trị cập nhật phần mềm.</string>
+
+    <string name="durable_storage_required_title">Cần quyền lưu mã máy</string>
+    <string name="durable_storage_required_message">M-Photo Mono cần quyền \"Cho phép quản lý tất cả các tệp\" để lưu mã máy trên thiết bị (còn sau khi gỡ/cài lại).\n\nVui lòng bật quyền này để tiếp tục sử dụng app.</string>
+    <string name="durable_storage_required_open_settings">Bật quyền</string>
+    <string name="durable_storage_required_exit">Thoát app</string>
 </resources>

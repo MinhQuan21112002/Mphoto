@@ -1,9 +1,18 @@
 package com.sdk.esc;
 
+import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.Settings;
 import android.util.Log;
+import android.view.WindowManager;
+
+import com.mphoto.mono.R;
 
 import org.json.JSONObject;
 
@@ -12,18 +21,25 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * MachineManager - Quản lý Machine Code và Random Code
  * Tương tự MachineService + MachineStorageService trong mlite
- * 
+ *
  * Lưu trữ:
- * - machineCode: 6 ký tự (do app tạo, dùng để định danh máy)
- * - randomCode: 3 ký tự (do server tạo, dùng để xác thực)
- * - machineName: Tên máy (optional)
- * - lastUpdated: Thời gian cập nhật cuối
- * - previousRandomCode: Mã random cũ (để so sánh thay đổi)
+ * - SharedPreferences (cache trong app — mất khi gỡ cài đặt)
+ * - File JSON công khai trên máy (sống sót khi gỡ/cài lại), ví dụ:
+ *   /sdcard/MPhotoConfig/machine-mono.json
+ *   /sdcard/Documents/M-Photo/machine-mono.json
+ *   /sdcard/Download/M-Photo/machine-mono.json
+ *
+ * Android 10+ cần quyền "All files access" (MANAGE_EXTERNAL_STORAGE) để ghi/đọc
+ * file JSON ngoài MediaStore một cách ổn định.
  */
 public class MachineManager {
     private static final String TAG = "MachineManager";
@@ -33,6 +49,17 @@ public class MachineManager {
     private static final String KEY_MACHINE_NAME = "machineName";
     private static final String KEY_LAST_UPDATED = "lastUpdated";
     private static final String KEY_PREVIOUS_RANDOM_CODE = "previousRandomCode";
+    private static final String KEY_ASKED_ALL_FILES = "askedAllFilesAccess";
+    private static final String KEY_PENDING_DURABLE_GRANT = "pendingDurableGrantReturn";
+
+    /** Dialog chặn app khi chưa cấp All files access (không dismiss được). */
+    private AlertDialog durableAccessBlockDialog;
+
+    /** File riêng Mono — không dùng chung với Lite. */
+    private static final String DURABLE_FILE_NAME = "machine-mono.json";
+    private static final String LEGACY_FILE_NAME = "machine.json";
+    private static final String DURABLE_DIR_LEGACY = "MPhotoConfig";
+    private static final String DURABLE_DIR_APP = "M-Photo";
     
     private static MachineManager instance;
     private final Context context;
@@ -102,21 +129,205 @@ public class MachineManager {
     }
 
     /**
-     * Lấy file JSON lưu thông tin machine ngoài bộ nhớ
-     * Ví dụ: /sdcard/MPhotoConfig/machine.json
+     * Các vị trí file JSON bền trên máy (sống sót khi gỡ app).
+     * Ghi vào mọi path viết được; đọc path đầu tiên có dữ liệu hợp lệ.
      */
-    private File getMachineJsonFile() {
+    private List<File> getDurableCandidateFiles(boolean includeLegacyShared) {
+        Set<File> files = new LinkedHashSet<>();
         try {
             File root = Environment.getExternalStorageDirectory();
-            File dir = new File(root, "MPhotoConfig");
-            if (!dir.exists()) {
-                // mkdirs() có thể trả false nếu không tạo được nhưng không cần crash app
-                dir.mkdirs();
+            if (root != null) {
+                files.add(new File(new File(root, DURABLE_DIR_LEGACY), DURABLE_FILE_NAME));
+                if (includeLegacyShared) {
+                    files.add(new File(new File(root, DURABLE_DIR_LEGACY), LEGACY_FILE_NAME));
+                }
             }
-            return new File(dir, "machine.json");
+            File documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            if (documents != null) {
+                files.add(new File(new File(documents, DURABLE_DIR_APP), DURABLE_FILE_NAME));
+            }
+            File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (downloads != null) {
+                files.add(new File(new File(downloads, DURABLE_DIR_APP), DURABLE_FILE_NAME));
+            }
+            File pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+            if (pictures != null) {
+                files.add(new File(new File(pictures, DURABLE_DIR_APP), DURABLE_FILE_NAME));
+            }
         } catch (Exception e) {
-            Log.e(TAG, "Error getting machine.json file path", e);
-            return null;
+            Log.e(TAG, "Error building durable candidate paths", e);
+        }
+        return new ArrayList<>(files);
+    }
+
+    /** True nếu Android 11+ đã cấp All files access (cần để ghi JSON bền). */
+    public static boolean hasDurableStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        return true;
+    }
+
+    /**
+     * Bắt buộc All files access — chưa bật thì chặn app (dialog không tắt được).
+     * @return true nếu đã có quyền / không cần (Android &lt; 11); false nếu đang chặn.
+     */
+    public boolean enforceDurableStorageAccessRequired(Activity activity) {
+        if (activity == null || activity.isFinishing()) {
+            return hasDurableStorageAccess();
+        }
+        if (hasDurableStorageAccess()) {
+            dismissDurableAccessBlockDialog();
+            if (machineCode != null && !machineCode.isEmpty()) {
+                saveToJsonFile();
+            } else {
+                loadFromJsonFile();
+            }
+            // Vừa cấp quyền xong → đóng app để user mở lại sạch (init machine/socket/camera).
+            if (consumePendingDurableGrantReturn()) {
+                closeAppForFreshStart(activity);
+                return false;
+            }
+            return true;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return true;
+        }
+        showDurableAccessBlockDialog(activity);
+        return false;
+    }
+
+    /**
+     * Xin quyền All files access — mở Settings. Dùng từ nút trong dialog chặn.
+     */
+    public void requestDurableStorageAccessIfNeeded(Activity activity) {
+        if (activity == null) return;
+        if (hasDurableStorageAccess()) {
+            if (machineCode != null && !machineCode.isEmpty()) {
+                saveToJsonFile();
+            } else {
+                loadFromJsonFile();
+            }
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return;
+        }
+        openAllFilesAccessSettings(activity);
+    }
+
+    private void openAllFilesAccessSettings(Activity activity) {
+        boolean asked = prefs.getBoolean(KEY_ASKED_ALL_FILES, false);
+        try {
+            prefs.edit()
+                    .putBoolean(KEY_ASKED_ALL_FILES, true)
+                    .putBoolean(KEY_PENDING_DURABLE_GRANT, true)
+                    .apply();
+            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+            intent.setData(Uri.parse("package:" + activity.getPackageName()));
+            activity.startActivity(intent);
+            Log.d(TAG, "Opened All files access settings (askedBefore=" + asked + ")");
+        } catch (Exception e) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                activity.startActivity(intent);
+            } catch (Exception e2) {
+                Log.e(TAG, "Cannot open All files access settings", e2);
+            }
+        }
+    }
+
+    private void showDurableAccessBlockDialog(Activity activity) {
+        try {
+            if (durableAccessBlockDialog != null) {
+                if (durableAccessBlockDialog.isShowing()) {
+                    // Cùng activity đang hiện → giữ nguyên
+                    if (durableAccessBlockDialog.getOwnerActivity() == activity) {
+                        return;
+                    }
+                }
+                dismissDurableAccessBlockDialog();
+            }
+            AlertDialog dialog = new AlertDialog.Builder(activity)
+                    .setTitle(R.string.durable_storage_required_title)
+                    .setMessage(R.string.durable_storage_required_message)
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.durable_storage_required_open_settings, null)
+                    .setNegativeButton(R.string.durable_storage_required_exit, null)
+                    .create();
+            dialog.setCanceledOnTouchOutside(false);
+            dialog.setOwnerActivity(activity);
+            dialog.setOnShowListener(d -> {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v ->
+                        openAllFilesAccessSettings(activity));
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
+                    try {
+                        activity.finishAffinity();
+                    } catch (Exception ignored) {
+                        activity.finish();
+                    }
+                });
+            });
+            dialog.show();
+            try {
+                if (dialog.getWindow() != null) {
+                    dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+                }
+            } catch (Exception ignored) { }
+            durableAccessBlockDialog = dialog;
+        } catch (Exception e) {
+            Log.e(TAG, "Cannot show durable access block dialog", e);
+            // Fallback: vẫn mở Settings
+            openAllFilesAccessSettings(activity);
+        }
+    }
+
+    private void dismissDurableAccessBlockDialog() {
+        try {
+            if (durableAccessBlockDialog != null && durableAccessBlockDialog.isShowing()) {
+                durableAccessBlockDialog.dismiss();
+            }
+        } catch (Exception ignored) { }
+        durableAccessBlockDialog = null;
+    }
+
+    private boolean consumePendingDurableGrantReturn() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            return false;
+        }
+        boolean pending = prefs.getBoolean(KEY_PENDING_DURABLE_GRANT, false);
+        if (!pending) {
+            return false;
+        }
+        prefs.edit().putBoolean(KEY_PENDING_DURABLE_GRANT, false).apply();
+        return true;
+    }
+
+    private void closeAppForFreshStart(Activity activity) {
+        if (activity == null || activity.isFinishing()) {
+            return;
+        }
+        Log.d(TAG, "All files access granted — closing app for fresh restart");
+        try {
+            activity.finishAffinity();
+        } catch (Exception e) {
+            activity.finish();
+        }
+    }
+
+    /**
+     * Gọi lại sau khi user quay từ Settings — load file bền nếu prefs trống, hoặc ghi lại file.
+     */
+    public void reloadDurableStorageAfterPermission() {
+        if (!hasDurableStorageAccess()) {
+            return;
+        }
+        // Ưu tiên đọc file bền trước khi ghi — quan trọng sau gỡ/cài lại
+        if (machineCode == null || machineCode.isEmpty()) {
+            loadFromJsonFile();
+        }
+        if (machineCode != null && !machineCode.isEmpty()) {
+            saveToJsonFile();
         }
     }
 
@@ -126,11 +337,23 @@ public class MachineManager {
      */
     private void loadFromJsonFile() {
         try {
-            File file = getMachineJsonFile();
-            if (file == null || !file.exists()) {
-                return;
+            for (File file : getDurableCandidateFiles(true)) {
+                if (file == null || !file.exists() || !file.canRead()) {
+                    continue;
+                }
+                if (applyMachineJsonFromFile(file)) {
+                    Log.d(TAG, "Loaded machine info from JSON: " + file.getAbsolutePath());
+                    return;
+                }
             }
+            Log.d(TAG, "No durable machine.json found on device");
+        } catch (Exception e) {
+            Log.e(TAG, "Error loading machine info from JSON file", e);
+        }
+    }
 
+    private boolean applyMachineJsonFromFile(File file) {
+        try {
             FileInputStream fis = new FileInputStream(file);
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             byte[] buffer = new byte[1024];
@@ -144,7 +367,18 @@ public class MachineManager {
             JSONObject obj = new JSONObject(jsonStr);
 
             String fileMachineCode = obj.optString("machineCode", null);
+            if (fileMachineCode == null || fileMachineCode.trim().isEmpty()) {
+                return false;
+            }
+            fileMachineCode = fileMachineCode.trim().toUpperCase();
+
             String fileRandomCode = obj.optString("randomCode", null);
+            if (fileRandomCode != null) {
+                fileRandomCode = fileRandomCode.trim();
+                if (fileRandomCode.isEmpty()) {
+                    fileRandomCode = null;
+                }
+            }
             String fileMachineName = obj.optString("machineName", "");
             long fileLastUpdated = obj.optLong("lastUpdated", System.currentTimeMillis());
 
@@ -162,15 +396,23 @@ public class MachineManager {
                 lastUpdated = fileLastUpdated;
             }
 
-            // Lưu lại vào SharedPreferences để dùng thống nhất trong app
-            if (machineCode != null && !machineCode.isEmpty()
-                    && randomCode != null && !randomCode.isEmpty()) {
-                saveToStorage();
-                Log.d(TAG, "Loaded machine info from JSON file");
+            // Đồng bộ vào prefs + ghi lại các path mới (migrate legacy)
+            if (machineCode != null && !machineCode.isEmpty()) {
+                SharedPreferences.Editor editor = prefs.edit();
+                editor.putString(KEY_MACHINE_CODE, machineCode);
+                if (randomCode != null) {
+                    editor.putString(KEY_RANDOM_CODE, randomCode);
+                }
+                editor.putString(KEY_MACHINE_NAME, machineName != null ? machineName : "");
+                editor.putLong(KEY_LAST_UPDATED, lastUpdated);
+                editor.apply();
+                saveToJsonFile();
+                return true;
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error loading machine info from JSON file", e);
+            Log.e(TAG, "Error reading " + file.getAbsolutePath(), e);
         }
+        return false;
     }
 
     /**
@@ -179,28 +421,41 @@ public class MachineManager {
      */
     private void saveToJsonFile() {
         try {
-            if (machineCode == null || machineCode.isEmpty()
-                    || randomCode == null || randomCode.isEmpty()) {
-                return;
-            }
-
-            File file = getMachineJsonFile();
-            if (file == null) {
+            if (machineCode == null || machineCode.isEmpty()) {
                 return;
             }
 
             JSONObject obj = new JSONObject();
             obj.put("machineCode", machineCode);
-            obj.put("randomCode", randomCode);
+            obj.put("randomCode", randomCode != null ? randomCode : "");
             obj.put("machineName", machineName != null ? machineName : "");
             obj.put("lastUpdated", System.currentTimeMillis());
+            obj.put("product", "mono");
+            byte[] bytes = obj.toString().getBytes(StandardCharsets.UTF_8);
 
-            FileOutputStream fos = new FileOutputStream(file);
-            fos.write(obj.toString().getBytes(StandardCharsets.UTF_8));
-            fos.flush();
-            fos.close();
-
-            Log.d(TAG, "Saved machine info to JSON file: " + file.getAbsolutePath());
+            int saved = 0;
+            for (File file : getDurableCandidateFiles(false)) {
+                if (file == null) continue;
+                try {
+                    File parent = file.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        //noinspection ResultOfMethodCallIgnored
+                        parent.mkdirs();
+                    }
+                    FileOutputStream fos = new FileOutputStream(file);
+                    fos.write(bytes);
+                    fos.flush();
+                    fos.close();
+                    saved++;
+                    Log.d(TAG, "Saved machine info to JSON: " + file.getAbsolutePath());
+                } catch (Exception e) {
+                    Log.w(TAG, "Cannot write " + file.getAbsolutePath() + ": " + e.getMessage());
+                }
+            }
+            if (saved == 0) {
+                Log.e(TAG, "Failed to save durable machine.json anywhere — "
+                        + "grant All files access or machine code will reset after reinstall");
+            }
         } catch (Exception e) {
             Log.e(TAG, "Error saving machine info to JSON file", e);
         }
@@ -237,6 +492,10 @@ public class MachineManager {
         if (machineCode != null && !machineCode.isEmpty()) {
             return machineCode;
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasDurableStorageAccess()) {
+            Log.w(TAG, "ensureLocalMachineCode: no All files access yet — skip generate");
+            return null;
+        }
         machineCode = generateMachineCode();
         lastUpdated = System.currentTimeMillis();
         saveToStorage();
@@ -259,14 +518,27 @@ public class MachineManager {
         try {
             Log.d(TAG, "=== CHECK AND UPDATE MACHINE ===");
             
+            // BƯỚC 0: Thử đọc lại file bền trên máy (sau gỡ/cài lại hoặc vừa cấp All files access)
+            if (machineCode == null || machineCode.isEmpty()) {
+                loadFromJsonFile();
+            }
+
             // BƯỚC 1: Kiểm tra hoặc tạo Machine Code
             // ❗️MachineCode là của MÁY, không phụ thuộc tài khoản
             // Chỉ tạo mới nếu local (SharedPreferences + JSON) hoàn toàn chưa có
             if (machineCode == null || machineCode.isEmpty()) {
+                // Chưa có quyền đọc file bền → đừng tạo mã mới (tránh ghi đè mã cũ sau khi cấp quyền)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasDurableStorageAccess()) {
+                    Log.w(TAG, "Defer machineCode generation until All files access is granted");
+                    return false;
+                }
                 machineCode = generateMachineCode();
                 lastUpdated = System.currentTimeMillis();
                 saveToStorage();
                 Log.d(TAG, "Generated new machineCode (local-only): " + machineCode);
+            } else {
+                // Đảm bảo đã ghi ra file bền (kể cả mã cũ từ prefs)
+                saveToJsonFile();
             }
             
             // BƯỚC 2: Nếu chưa có randomCode → kiểm tra server hoặc tạo mới
@@ -477,7 +749,7 @@ public class MachineManager {
     }
     
     /**
-     * Xóa toàn bộ thông tin machine (reset)
+     * Xóa toàn bộ thông tin machine (reset có chủ đích)
      */
     public void clearMachineInfo() {
         machineCode = null;
@@ -489,12 +761,13 @@ public class MachineManager {
         prefs.edit().clear().apply();
         Log.d(TAG, "Machine info cleared");
 
-        // Xóa luôn file JSON ngoài bộ nhớ nếu có
+        // Xóa mọi file JSON bền (kể cả legacy)
         try {
-            File file = getMachineJsonFile();
-            if (file != null && file.exists()) {
-                boolean deleted = file.delete();
-                Log.d(TAG, "External machine.json deleted: " + deleted);
+            for (File file : getDurableCandidateFiles(true)) {
+                if (file != null && file.exists()) {
+                    boolean deleted = file.delete();
+                    Log.d(TAG, "External machine file deleted (" + deleted + "): " + file.getAbsolutePath());
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Error deleting external machine.json", e);

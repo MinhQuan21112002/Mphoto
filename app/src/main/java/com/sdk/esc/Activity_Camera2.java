@@ -86,7 +86,7 @@ import com.google.gson.reflect.TypeToken;
 
 import org.opencv.android.OpenCVLoader;
 
-public class Activity_Camera2 extends AppCompatActivity {
+public class Activity_Camera2 extends AppCompatActivity implements ControlPageCommandHost {
     File file;
     ImageSolve imgSolve;
     private MediaPlayer countdownSound;
@@ -170,6 +170,9 @@ public class Activity_Camera2 extends AppCompatActivity {
             finish();
             return;
         }
+
+        // Bắt buộc All files access — chưa bật thì chặn app (dialog không tắt được)
+        MachineManager.getInstance(this).enforceDurableStorageAccessRequired(this);
 
         MonoGalleryCleanup.runInBackground(this);
 
@@ -371,14 +374,11 @@ public class Activity_Camera2 extends AppCompatActivity {
                 return;
             }
 
-            // Tính toán kích thước mới theo tỷ lệ 16:10
+            // Giống Manual: khung 3:4 dọc, giữ alpha để thấy live view ở giữa
             int originalWidth = bitmap.getWidth();
-            int targetHeight = (int) (originalWidth * (9.5 / 16.0));
+            int targetHeight = (int) (originalWidth * (3.0 / 4.0));
 
-            // Resize bitmap
             Bitmap resizedBitmap = Bitmap.createScaledBitmap(bitmap, originalWidth, targetHeight, true);
-
-            // Set resized bitmap vào ImageView
             imgFrame.setImageBitmap(resizedBitmap);
         }
     }
@@ -386,19 +386,25 @@ public class Activity_Camera2 extends AppCompatActivity {
     private void startCountdown() {
         // Hiển thị TextView countdown
         countdown.setVisibility(View.VISIBLE);
-        countdownSound = MediaPlayer.create(this, R.raw.countdown); // Sử dụng tệp âm thanh cho 3 giây
-        shutterSound = MediaPlayer.create(this, R.raw.shutter); // Sử dụng tệp âm thanh cho tiếng chụp
+        countdownSound = MediaPlayer.create(this, R.raw.countdown);
+        shutterSound = MediaPlayer.create(this, R.raw.shutter);
+        try {
+            SocketService.getInstance().emitCaptureCountdown(3, 3);
+        } catch (Exception ignored) {
+        }
 
-        // Khởi tạo CountDownTimer, đếm ngược từ 3 giây
         new CountDownTimer(3000, 1000) {
 
             @Override
             public void onTick(long millisUntilFinished) {
-                // Cập nhật TextView với số giây còn lại
                 int secondsRemaining = (int) millisUntilFinished / 1000;
+                int show = secondsRemaining + 1;
+                try {
+                    SocketService.getInstance().emitCaptureCountdown(show, 3);
+                } catch (Exception ignored) {
+                }
 
-                // Phát âm thanh cho mỗi giây đếm ngược
-                switch (secondsRemaining+1) {
+                switch (show) {
                     case 3:
                         countdownSound = MediaPlayer.create(Activity_Camera2.this, R.raw.countdown);
                         countdownSound.start();
@@ -419,13 +425,12 @@ public class Activity_Camera2 extends AppCompatActivity {
 
             @Override
             public void onFinish() {
-                // Sau khi đếm ngược xong, thực hiện chụp ảnh
-                takePicture(); // Gọi hàm chụp ảnh sau khi đếm ngược xong
-
-                // Phát âm thanh tiếng chụp
+                try {
+                    SocketService.getInstance().emitCaptureCountdown(0, 3);
+                } catch (Exception ignored) {
+                }
+                takePicture();
                 shutterSound.start();
-
-                // Ẩn TextView countdown sau khi chụp ảnh
                 countdown.setVisibility(View.GONE);
             }
         }.start();
@@ -1106,6 +1111,9 @@ public class Activity_Camera2 extends AppCompatActivity {
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
     }
     protected void stopBackgroundThread() {
+        if (mBackgroundThread == null) {
+            return;
+        }
         mBackgroundThread.quitSafely();
         try {
             mBackgroundThread.join();
@@ -1115,9 +1123,29 @@ public class Activity_Camera2 extends AppCompatActivity {
             Log.d("StopBackgroundThread", "Error " + e);
         }
     }
+
+    private void closeCamera() {
+        try {
+            if (cameraCaptureSessions != null) {
+                cameraCaptureSessions.close();
+                cameraCaptureSessions = null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "close session: " + e.getMessage());
+        }
+        try {
+            if (cameraDevice != null) {
+                cameraDevice.close();
+                cameraDevice = null;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "close device: " + e.getMessage());
+        }
+    }
     private void takePicture() {
         if (null == cameraDevice) {
             Log.e(TAG, "cameraDevice is null");
+            enableCaptureControls();
             return;
         }
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
@@ -1205,14 +1233,18 @@ public class Activity_Camera2 extends AppCompatActivity {
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {
                     Log.e(TAG, "Camera capture session configuration failed");
+                    enableCaptureControls();
                 }
             }, mBackgroundHandler);
         } catch (CameraAccessException e) {
             Log.e(TAG, "CameraAccessException: " + e.getMessage());
+            enableCaptureControls();
         } catch (IllegalStateException e) {
             Log.e(TAG, "IllegalStateException: " + e.getMessage());
+            enableCaptureControls();
         } catch (Exception e) {
             Log.e(TAG, "Unexpected exception: " + e.getMessage());
+            enableCaptureControls();
         }
     }
     // Khởi tạo camera để preview trong textureview
@@ -1277,6 +1309,9 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
     }
     private void openCamera() {
+        if (!MachineManager.hasDurableStorageAccess()) {
+            return;
+        }
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         Log.e(TAG, "is camera open");
         try {
@@ -1446,13 +1481,30 @@ public class Activity_Camera2 extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        MachineManager mm = MachineManager.getInstance(this);
+        // Chưa bật quyền ghi mã máy → chặn camera / socket
+        if (!mm.enforceDurableStorageAccessRequired(this)) {
+            Log.w(TAG, "Blocked until All files access is granted");
+            return;
+        }
+        mm.reloadDurableStorageAfterPermission();
+        // Sau khi user cấp All files access: đăng ký máy (lần đầu có thể bị defer)
+        TokenManager tm = TokenManager.getInstance(this);
+        if (tm.canUseCloudFeatures() && (mm.getMachineCode() == null || mm.getMachineCode().isEmpty())) {
+            connectMachinePresenceForDeviceManager(tm.getToken());
+        }
         reloadIsoExposureFromPrefs();
         final boolean softSwitch = MonoScreenSwitch.consumeSoftResume();
         MonoDriveServerSync.requestSyncIfLoggedIn(this);
         applyClickButtonHiddenState();
+        enableCaptureControls();
         startBackgroundThread();
         if (textureView != null) {
             textureView.removeCallbacks(deferredOpenCameraRunnable);
+        }
+        try {
+            SocketService.getInstance().attachControlPageBridge(this, textureView);
+        } catch (Exception ignored) {
         }
         if (softSwitch && textureView != null) {
             // Cho hiệu ứng chuyển màn chạy trước, rồi mới mở camera
@@ -1468,13 +1520,17 @@ public class Activity_Camera2 extends AppCompatActivity {
         if (textureView != null) {
             textureView.removeCallbacks(deferredOpenCameraRunnable);
         }
-        //closeCamera();
+        // Phải nhả camera khi pause — nếu không Manual/settings không mở được → live view đứng im
+        closeCamera();
         stopBackgroundThread();
         super.onPause();
     }
 
     private void openCameraIfReady() {
         if (isFinishing() || textureView == null) {
+            return;
+        }
+        if (!MachineManager.hasDurableStorageAccess()) {
             return;
         }
         if (textureView.isAvailable()) {
@@ -1517,6 +1573,160 @@ public class Activity_Camera2 extends AppCompatActivity {
         }
     }
 
+    @Override
+    public String getControlPageWindowState() {
+        return "main";
+    }
 
+    @Override
+    public boolean isMonoPostCapturePending() {
+        return false;
+    }
+
+    @Override
+    public void onControlPageSetIso(String isoValue) {
+        runOnUiThread(() -> {
+            try {
+                getSharedPreferences("MyAppPrefs", MODE_PRIVATE).edit()
+                        .putString("isovalue", isoValue).apply();
+                reloadIsoExposureFromPrefs();
+                if (cameraCaptureSessions != null && captureRequestBuilder != null) {
+                    captureRequestBuilder.set(CaptureRequest.SENSOR_SENSITIVITY, ISOvalue);
+                    cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
+                }
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            } catch (Exception e) {
+                Log.e(TAG, "onControlPageSetIso", e);
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageSetExposure(String exposureNs) {
+        runOnUiThread(() -> {
+            try {
+                getSharedPreferences("MyAppPrefs", MODE_PRIVATE).edit()
+                        .putString("epxvalue", exposureNs).apply();
+                reloadIsoExposureFromPrefs();
+                if (cameraCaptureSessions != null && captureRequestBuilder != null) {
+                    long expo = Math.min(ExpoValue, 80_000_000L);
+                    captureRequestBuilder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, expo);
+                    cameraCaptureSessions.setRepeatingRequest(captureRequestBuilder.build(), null, null);
+                }
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            } catch (Exception e) {
+                Log.e(TAG, "onControlPageSetExposure", e);
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageSetPrintMode(int mode) {
+        PrintBitmapMode.set(this, mode);
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSetPrinterTest(boolean enabled) {
+        PrinterTestMode.setEnabled(this, enabled);
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSetQrPrint(boolean enabled) {
+        getSharedPreferences("settings", MODE_PRIVATE).edit()
+                .putBoolean("Download", enabled).apply();
+        SocketService.getInstance().notifyControlPageSettingsChanged();
+    }
+
+    @Override
+    public void onControlPageSetClickButtonHidden(boolean hidden) {
+        runOnUiThread(() -> {
+            setClickButtonHidden(hidden);
+            SocketService.getInstance().notifyControlPageSettingsChanged();
+        });
+    }
+
+    @Override
+    public void onControlPageSelectFrame(String frameId) {
+        MonoAssetSelectHelper.selectFrameById(this, frameId, new MonoAssetSelectHelper.AfterSelect() {
+            @Override
+            public void onApplied(int index) {
+                currentIndex = index;
+                SharedPreferences preferences = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
+                String jsonString = preferences.getString("bitmap_list", "[]");
+                bitmapList = new Gson().fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+                updateImageView(currentIndex);
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            }
+
+            @Override
+            public void onError(String message) {
+                Log.w(TAG, "select frame: " + message);
+                Toast.makeText(Activity_Camera2.this, message, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageSelectSubPhoto(String subPhotoId) {
+        MonoAssetSelectHelper.selectSubById(this, subPhotoId, new MonoAssetSelectHelper.AfterSelect() {
+            @Override
+            public void onApplied(int index) {
+                currentIndexImageView2 = index;
+                SharedPreferences sharedPreferences2 = getSharedPreferences("MyAppPrefs2", MODE_PRIVATE);
+                String json = sharedPreferences2.getString("ImageViewList", "[]");
+                bitmapListImageView2 = new Gson().fromJson(json, new TypeToken<List<String>>() {}.getType());
+                if (bitmapListImageView2 != null && !bitmapListImageView2.isEmpty()
+                        && index < bitmapListImageView2.size()) {
+                    image = UserAssetFileStore.decodeListEntryToBitmap(
+                            Activity_Camera2.this, bitmapListImageView2.get(index));
+                }
+                if (image == null) {
+                    image = BitmapFactory.decodeResource(getResources(), R.drawable.bottom);
+                }
+                SocketService.getInstance().notifyControlPageSettingsChanged();
+            }
+
+            @Override
+            public void onError(String message) {
+                Log.w(TAG, "select sub: " + message);
+                Toast.makeText(Activity_Camera2.this, message, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    @Override
+    public void onControlPageCapture() {
+        runOnUiThread(() -> {
+            if (!Print.IsOpened() && !PrinterTestMode.isEnabled(this)) {
+                Toast.makeText(this, getString(R.string.please_connect_printer), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Remote từ Control Page: không phụ thuộc nút chụp local đang enabled
+            startCountdown();
+            if (textureView != null) textureView.setEnabled(false);
+            if (clickButton != null) {
+                clickButton.setEnabled(false);
+                stopClickButtonBlink();
+                clickButton.setVisibility(View.INVISIBLE);
+            }
+        });
+    }
+
+    @Override
+    public void onControlPagePrint() {
+        // Main tự in sau chụp — không có bước In/Hủy
+    }
+
+    @Override
+    public void onControlPageCancelPostCapture() {
+        // no-op trên trang chính
+    }
+
+    @Override
+    public void onControlPageNavigateBackToMain() {
+        // Đã ở Main
+    }
 
 }

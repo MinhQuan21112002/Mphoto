@@ -176,8 +176,8 @@ public final class MonoGalleryCleanup {
     }
 
     /**
-     * {@code folderId} chuẩn: {@code yyyyMMddHHmmss} + mã máy (6) + 10 ký tự ngẫu nhiên.
-     * Bản cũ: {@code yyyyMMddHHmmss}/{@code ddMMyyyyHHmmss} + 10 random (không mã máy).
+     * {@code folderId} chuẩn: {@code yyyyMMddHHmmss} + mã máy.
+     * Bản cũ: thêm 10 random; hoặc không mã máy.
      * Chỉ cần 14 ký tự đầu để suy ra thời gian tạo.
      */
     static long resolveCreatedTimeMillis(String folderId, long fileTimeFallbackMs) {

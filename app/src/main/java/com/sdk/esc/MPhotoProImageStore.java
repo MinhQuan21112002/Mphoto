@@ -105,6 +105,27 @@ public final class MPhotoProImageStore {
         String displayName,
         Bitmap bitmap
     ) throws IOException {
+        saveBitmap(context, mphotoPathUnderFolder, displayName, bitmap, "image/jpeg", Bitmap.CompressFormat.JPEG, 95);
+    }
+
+    public static void savePngBitmap(
+        Context context,
+        String mphotoPathUnderFolder,
+        String displayName,
+        Bitmap bitmap
+    ) throws IOException {
+        saveBitmap(context, mphotoPathUnderFolder, displayName, bitmap, "image/png", Bitmap.CompressFormat.PNG, 100);
+    }
+
+    private static void saveBitmap(
+        Context context,
+        String mphotoPathUnderFolder,
+        String displayName,
+        Bitmap bitmap,
+        String mime,
+        Bitmap.CompressFormat format,
+        int quality
+    ) throws IOException {
         if (bitmap == null || bitmap.isRecycled()) {
             return;
         }
@@ -112,7 +133,7 @@ public final class MPhotoProImageStore {
         ContentResolver r = context.getContentResolver();
         ContentValues v = new ContentValues();
         v.put(MediaStore.Images.Media.DISPLAY_NAME, displayName);
-        v.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        v.put(MediaStore.Images.Media.MIME_TYPE, mime);
         v.put(MediaStore.Images.Media.RELATIVE_PATH, mediaStoreRelativePathFor(mphotoPathUnderFolder));
         v.put(MediaStore.Images.Media.IS_PENDING, 1);
         Uri collection = MediaStore.Images.Media.getContentUri("external");
@@ -122,7 +143,7 @@ public final class MPhotoProImageStore {
         }
         try (OutputStream out = r.openOutputStream(uri)) {
             if (out != null) {
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                bitmap.compress(format, quality, out);
             }
         } catch (Exception e) {
             try {

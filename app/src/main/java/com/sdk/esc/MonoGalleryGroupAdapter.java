@@ -22,7 +22,7 @@ import java.util.List;
 public class MonoGalleryGroupAdapter extends RecyclerView.Adapter<MonoGalleryGroupAdapter.Holder> {
 
     public static class Item {
-        /** folderId trên server / hiển thị (30 ký tự, có mã máy). */
+        /** folderId trên server / hiển thị (ngày giờ + mã máy). */
         public String folderId;
         /** folderId parse từ tên file local (có thể 24 ký tự, thiếu mã máy). */
         public String localFolderId;
