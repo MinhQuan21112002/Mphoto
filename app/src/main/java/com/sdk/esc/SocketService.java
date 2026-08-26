@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
@@ -42,6 +43,27 @@ public class SocketService {
     private volatile boolean evfWanted;
     private WeakReference<TextureView> previewTextureRef = new WeakReference<>(null);
     private WeakReference<ControlPageCommandHost> commandHostRef = new WeakReference<>(null);
+
+    /**
+     * GetRealTimeStatus (USB) không được chạy trên main — sẽ đứng preview/app từng nhịp.
+     * Cache + poll trên background thread.
+     */
+    private static final long PRINTER_STATUS_POLL_MS = 5000L;
+    private HandlerThread printerIoThread;
+    private Handler printerIoHandler;
+    private volatile MonoPrinterStatusHelper.Snapshot cachedPrinter =
+            new MonoPrinterStatusHelper.Snapshot(false, "Disconnected", false);
+    private volatile String lastEmittedPrinterKey = "";
+    private final Runnable printerStatusPollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            refreshPrinterCacheAndEmitIfChanged(false);
+            Handler h = printerIoHandler;
+            if (h != null) {
+                h.postDelayed(this, PRINTER_STATUS_POLL_MS);
+            }
+        }
+    };
 
     private SocketService() {
         ensureSocket();
@@ -102,6 +124,7 @@ public class SocketService {
             }
             emitJoinMachineAppRoomIfPending();
             emitJoinUserRoomIfPending();
+            startPrinterStatusPoll();
             if (evfWanted) {
                 startEvfStreaming();
                 emitCameraSettingsForControlPage(true);
@@ -153,7 +176,14 @@ public class SocketService {
         });
         socket.on("request-camera-settings", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
-            emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
+            startPrinterStatusPoll();
+            ensurePrinterIoThread();
+            Handler h = printerIoHandler;
+            if (h != null) {
+                h.post(() -> refreshPrinterCacheAndEmitIfChanged(true));
+            } else {
+                emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
+            }
         });
         socket.on("camera-command", args -> {
             JSONObject data = coerceJsonObject(args);
@@ -193,7 +223,8 @@ public class SocketService {
         if (evfWanted) {
             startEvfStreaming();
         }
-        emitCameraSettingsForControlPage(true);
+        startPrinterStatusPoll();
+        notifyControlPageSettingsChanged();
     }
 
     public void attachControlPageHost(ControlPageCommandHost host) {
@@ -201,7 +232,8 @@ public class SocketService {
         if (host instanceof Activity) {
             attachAppContext((Activity) host);
         }
-        emitCameraSettingsForControlPage(true);
+        startPrinterStatusPoll();
+        notifyControlPageSettingsChanged();
     }
 
     public void clearControlPageBridge() {
@@ -210,8 +242,60 @@ public class SocketService {
         stopEvfStreaming();
     }
 
+    private void ensurePrinterIoThread() {
+        if (printerIoThread != null && printerIoThread.isAlive()) return;
+        printerIoThread = new HandlerThread("mono-printer-io");
+        printerIoThread.start();
+        printerIoHandler = new Handler(printerIoThread.getLooper());
+    }
+
+    private void startPrinterStatusPoll() {
+        ensurePrinterIoThread();
+        Handler h = printerIoHandler;
+        if (h == null) return;
+        h.removeCallbacks(printerStatusPollRunnable);
+        h.post(printerStatusPollRunnable);
+    }
+
+    private void stopPrinterStatusPoll() {
+        Handler h = printerIoHandler;
+        if (h != null) {
+            h.removeCallbacks(printerStatusPollRunnable);
+        }
+    }
+
+    /** USB attach/detach / đổi setting — refresh printer trên bg rồi emit. */
     public void notifyControlPageSettingsChanged() {
-        emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
+        ensurePrinterIoThread();
+        Handler h = printerIoHandler;
+        if (h != null) {
+            h.post(() -> refreshPrinterCacheAndEmitIfChanged(true));
+        } else {
+            emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
+        }
+    }
+
+    /**
+     * Đọc USB trên background. Chỉ emit socket khi status đổi, hoặc force=true.
+     */
+    private void refreshPrinterCacheAndEmitIfChanged(boolean forceEmit) {
+        Context ctx = appContext;
+        if (ctx == null) return;
+        MonoPrinterStatusHelper.Snapshot snap;
+        try {
+            snap = MonoPrinterStatusHelper.refresh(ctx);
+        } catch (Exception e) {
+            Log.w(TAG, "printer refresh: " + e.getMessage());
+            return;
+        }
+        cachedPrinter = snap;
+        String key = (snap.connected ? "1" : "0") + "|" + snap.status;
+        if (!forceEmit && key.equals(lastEmittedPrinterKey)) {
+            return;
+        }
+        lastEmittedPrinterKey = key;
+        boolean camOn = evfWanted || (evfStreamer != null && evfStreamer.isRunning());
+        mainHandler.post(() -> emitCameraSettingsForControlPage(camOn));
     }
 
     public void emitCaptureCountdown(int remaining, int total) {
@@ -311,6 +395,7 @@ public class SocketService {
             payload.put("appWindowState", windowState);
             payload.put("monoPostCapturePending", host != null && host.isMonoPostCapturePending());
 
+            MonoPrinterStatusHelper.Snapshot printer = null;
             if (ctx != null) {
                 SharedPreferences cam = ctx.getSharedPreferences("MyAppPrefs", Context.MODE_PRIVATE);
                 String iso = cam.getString("isovalue", "400");
@@ -336,11 +421,25 @@ public class SocketService {
                         .getBoolean("Download", false));
                 payload.put("monoClickButtonHidden", ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
                         .getBoolean("click_button_hidden", false));
+
+                // Dùng cache — không gọi GetRealTimeStatus trên thread gọi (thường là main/UI).
+                printer = cachedPrinter;
+                if (printer == null) {
+                    printer = new MonoPrinterStatusHelper.Snapshot(false, "Disconnected", false);
+                }
+                payload.put("isPrinterConnected", printer.connected);
+                payload.put("printerStatus", printer.status);
+                payload.put("isPrinterStatusGood",
+                        printer.connected && MonoPrinterStatusHelper.classifyTone(printer.status) != MonoPrinterStatusHelper.Tone.BAD);
+                payload.put("printerPaperUsed", -1);
+                payload.put("printerPaperTotal", -1);
+                payload.put("printerPaperRemaining", -1);
             }
 
             socket.emit("camera-settings-update", payload);
             Log.d(TAG, "camera-settings-update connected=" + cameraConnected
-                    + " state=" + windowState);
+                    + " state=" + windowState
+                    + " printer=" + (printer != null ? printer.status : "—"));
         } catch (Exception e) {
             Log.e(TAG, "emitCameraSettingsForControlPage", e);
         }
@@ -587,6 +686,9 @@ public class SocketService {
     public void attachAppContext(android.content.Context context) {
         if (context != null) {
             this.appContext = context.getApplicationContext();
+            if (socket != null && socket.connected()) {
+                startPrinterStatusPoll();
+            }
         }
     }
 
@@ -604,6 +706,7 @@ public class SocketService {
     public void disconnect() {
         try {
             evfWanted = false;
+            stopPrinterStatusPoll();
             stopEvfStreaming();
             if (socket != null && socket.connected()) {
                 socket.disconnect();

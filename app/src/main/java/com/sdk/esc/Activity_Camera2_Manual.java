@@ -638,6 +638,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                         havingUsb=false;
                     }
                 }
+                SocketService.getInstance().notifyControlPageSettingsChanged();
             } catch (Exception e) {
                 Log.e("SDKSample", "Activity_Main --> mUsbReceiver: " + e.getMessage());
             }
