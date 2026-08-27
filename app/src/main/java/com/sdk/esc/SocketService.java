@@ -158,6 +158,8 @@ public class SocketService {
             if (!machineMatches(coerceJsonObject(args))) return;
             Log.d(TAG, "evf-stream-subscribe");
             evfWanted = true;
+            // Không reset WebRTC ở đây — subscribe có thể tới sau offer và giết P2P đang negotiate.
+            // handleOffer đã resetInternalLocked trước khi tạo PC mới.
             startEvfStreaming();
             emitCameraSettingsForControlPage(true);
         });
@@ -165,14 +167,51 @@ public class SocketService {
             if (!machineMatches(coerceJsonObject(args))) return;
             Log.d(TAG, "evf-stream-unsubscribe");
             evfWanted = false;
+            EvfWebRtcService rtc = EvfWebRtcService.peek();
+            if (rtc != null) rtc.reset();
             stopEvfStreaming();
         });
         socket.on("evf-stream-resync", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
             Log.d(TAG, "evf-stream-resync");
             evfWanted = true;
+            // Không reset WebRTC — giống mlite (resync chỉ để mở lại stream/layout)
             startEvfStreaming();
             emitCameraSettingsForControlPage(true);
+        });
+        socket.on("evf-webrtc-signal", args -> {
+            try {
+                JSONObject data = coerceJsonObject(args);
+                Log.d(TAG, "evf-webrtc-signal rawType="
+                        + (args != null && args.length > 0 && args[0] != null
+                        ? args[0].getClass().getName() : "null")
+                        + " parsed=" + (data != null)
+                        + " type=" + (data != null ? data.optString("type") : "-"));
+                if (!machineMatches(data)) {
+                    Log.w(TAG, "evf-webrtc-signal machine mismatch");
+                    return;
+                }
+                String mc = resolveMachineCode();
+                emitWebRtcDiag(mc, "offer-seen", data != null ? data.optString("type", "") : "null-data");
+                EvfWebRtcService rtc = EvfWebRtcService.peek();
+                if (rtc == null && appContext != null) {
+                    EvfWebRtcService.init(appContext, this::emitWebRtcSignal);
+                    rtc = EvfWebRtcService.peek();
+                }
+                if (rtc == null) {
+                    Log.e(TAG, "evf-webrtc-signal: EvfWebRtcService null");
+                    emitWebRtcDiag(mc, "error", "rtc-null");
+                    return;
+                }
+                if (data == null) {
+                    emitWebRtcDiag(mc, "error", "parse-null");
+                    return;
+                }
+                rtc.handleSignal(mc, data);
+            } catch (Throwable e) {
+                Log.e(TAG, "evf-webrtc-signal", e);
+                emitWebRtcDiag(resolveMachineCode(), "error", e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
         });
         socket.on("request-camera-settings", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
@@ -215,6 +254,7 @@ public class SocketService {
     public void attachControlPageBridge(Activity activity, TextureView previewTexture) {
         if (activity != null) {
             attachAppContext(activity);
+            DeviceWakeHelper.applyScreenOnFlags(activity);
         }
         previewTextureRef = new WeakReference<>(previewTexture);
         if (activity instanceof ControlPageCommandHost) {
@@ -356,7 +396,17 @@ public class SocketService {
     }
 
     private void emitEvfFrameUpdate(byte[] jpeg, long tsMs, long seq) {
-        if (socket == null || !socket.connected() || jpeg == null || jpeg.length == 0) return;
+        if (jpeg == null || jpeg.length == 0) return;
+        try {
+            byte[] packet = EvfFramePacket.pack(jpeg, seq, tsMs);
+            EvfWebRtcService rtc = EvfWebRtcService.peek();
+            if (rtc != null && rtc.trySendFrame(packet)) {
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "WebRTC frame send: " + e.getMessage());
+        }
+        if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
         if (mc == null || mc.isEmpty()) return;
         try {
@@ -375,6 +425,38 @@ public class SocketService {
         }
     }
 
+    private void emitWebRtcSignal(JSONObject payload) {
+        if (socket == null || !socket.connected() || payload == null) return;
+        try {
+            String mc = payload.optString("machineCode", "").trim();
+            if (mc.isEmpty()) {
+                String local = resolveMachineCode();
+                if (local != null) payload.put("machineCode", local.toUpperCase());
+            }
+            socket.emit("evf-webrtc-signal", payload);
+        } catch (Exception e) {
+            Log.w(TAG, "emitWebRtcSignal: " + e.getMessage());
+        }
+    }
+
+    private void emitWebRtcDiag(String machineCode, String phase, String detail) {
+        if (socket == null || !socket.connected()) return;
+        try {
+            String mc = machineCode != null ? machineCode : resolveMachineCode();
+            if (mc == null || mc.isEmpty()) return;
+            JSONObject payload = new JSONObject();
+            payload.put("machineCode", mc.toUpperCase());
+            payload.put("target", "control");
+            payload.put("type", "diag");
+            payload.put("phase", phase != null ? phase : "");
+            payload.put("detail", detail != null ? detail : "");
+            socket.emit("evf-webrtc-signal", payload);
+            Log.d(TAG, "WebRTC diag " + phase + " " + detail);
+        } catch (Exception e) {
+            Log.w(TAG, "emitWebRtcDiag: " + e.getMessage());
+        }
+    }
+
     public void emitCameraSettingsForControlPage(boolean cameraConnected) {
         if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
@@ -388,6 +470,8 @@ public class SocketService {
             payload.put("appPlatform", "android");
             payload.put("liveViewSource", "front");
             payload.put("controlPageLiveViewSource", "Webcam");
+            payload.put("evfWebRtc", true);
+            payload.put("evfWebRtcVer", 2);
 
             ControlPageCommandHost host = commandHostRef.get();
             String windowState = host != null ? host.getControlPageWindowState() : "main";
@@ -540,6 +624,24 @@ public class SocketService {
                     case "mono-back-to-main":
                         if (host != null) host.onControlPageNavigateBackToMain();
                         break;
+                    case "wake-device":
+                    case "wake-screen": {
+                        Activity act = host instanceof Activity ? (Activity) host : null;
+                        DeviceWakeHelper.wake(ctx, act);
+                        if (host != null) host.onControlPageWakeDevice();
+                        break;
+                    }
+                    case "evf-mic":
+                    case "evf-mic-enable": {
+                        boolean on = value != 0
+                                || "on".equalsIgnoreCase(stringValue)
+                                || "1".equals(stringValue)
+                                || "true".equalsIgnoreCase(stringValue);
+                        EvfWebRtcService rtc = EvfWebRtcService.peek();
+                        if (rtc != null) rtc.setMicEnabled(on);
+                        Log.d(TAG, "evf-mic → " + on);
+                        break;
+                    }
                     case "web-request-mono-frames":
                         syncMonoFramesThenNotify();
                         return;
@@ -675,17 +777,47 @@ public class SocketService {
         if (raw instanceof JSONObject) {
             return (JSONObject) raw;
         }
-        try {
-            return new JSONObject(String.valueOf(raw));
-        } catch (Exception e) {
-            return null;
+        if (raw instanceof java.util.Map) {
+            try {
+                return mapToJsonObject((java.util.Map<?, ?>) raw);
+            } catch (Exception e) {
+                return null;
+            }
         }
+        try {
+            String s = String.valueOf(raw);
+            if (s.startsWith("{")) return new JSONObject(s);
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static JSONObject mapToJsonObject(java.util.Map<?, ?> map) throws org.json.JSONException {
+        JSONObject out = new JSONObject();
+        for (java.util.Map.Entry<?, ?> e : map.entrySet()) {
+            if (e.getKey() == null) continue;
+            out.put(String.valueOf(e.getKey()), wrapJsonValue(e.getValue()));
+        }
+        return out;
+    }
+
+    private static Object wrapJsonValue(Object v) throws org.json.JSONException {
+        if (v == null || v == JSONObject.NULL) return JSONObject.NULL;
+        if (v instanceof JSONObject || v instanceof org.json.JSONArray) return v;
+        if (v instanceof java.util.Map) return mapToJsonObject((java.util.Map<?, ?>) v);
+        if (v instanceof java.util.Collection) {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (Object item : (java.util.Collection<?>) v) arr.put(wrapJsonValue(item));
+            return arr;
+        }
+        return v;
     }
 
     /** Gắn Application context để nhận realtime galleryUploadMethod. */
     public void attachAppContext(android.content.Context context) {
         if (context != null) {
             this.appContext = context.getApplicationContext();
+            EvfWebRtcService.init(appContext, this::emitWebRtcSignal);
             if (socket != null && socket.connected()) {
                 startPrinterStatusPoll();
             }

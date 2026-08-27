@@ -84,6 +84,7 @@ dependencies {
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'  // Updated to the latest version
     implementation 'jp.co.cyberagent.android:gpuimage:2.1.0'
     implementation 'io.socket:socket.io-client:2.1.0'
+    implementation 'io.getstream:stream-webrtc-android:1.3.8'
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
 
     // Glide (updated version)

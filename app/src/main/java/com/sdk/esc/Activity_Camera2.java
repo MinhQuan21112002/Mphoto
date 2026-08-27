@@ -1321,8 +1321,11 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             assert map != null;
             imageDimension = map.getOutputSizes(SurfaceTexture.class)[0];
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(Activity_Camera2.this, new String[]{Manifest.permission.CAMERA}, REQUEST_CAMERA_PERMISSION);
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+                    || ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(Activity_Camera2.this,
+                        new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO},
+                        REQUEST_CAMERA_PERMISSION);
                 return;
             }
 
@@ -1728,6 +1731,19 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
     @Override
     public void onControlPageNavigateBackToMain() {
         // Đã ở Main
+    }
+
+    @Override
+    public void onControlPageWakeDevice() {
+        runOnUiThread(() -> {
+            DeviceWakeHelper.applyScreenOnFlags(this);
+            if (textureView != null) {
+                textureView.removeCallbacks(deferredOpenCameraRunnable);
+                textureView.postDelayed(deferredOpenCameraRunnable, 400);
+            } else {
+                openCameraIfReady();
+            }
+        });
     }
 
 }

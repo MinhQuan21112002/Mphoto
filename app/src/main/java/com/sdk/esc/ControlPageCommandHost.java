@@ -38,4 +38,7 @@ public interface ControlPageCommandHost {
 
     /** Manual → Main (Control Page nút Back). */
     void onControlPageNavigateBackToMain();
+
+    /** Control Page → đánh thức màn hình / mở lại camera sau sleep. */
+    void onControlPageWakeDevice();
 }
