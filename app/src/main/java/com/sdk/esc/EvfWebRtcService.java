@@ -642,6 +642,10 @@ public final class EvfWebRtcService {
                     || newState == PeerConnection.PeerConnectionState.DISCONNECTED) {
                 frameChannelOpen = false;
             }
+            if (newState == PeerConnection.PeerConnectionState.FAILED) {
+                Log.w(TAG, "connection failed — reset for socket fallback");
+                reset();
+            }
             EvfMicSocketCapture.getInstance().syncCaptureState();
         }
 

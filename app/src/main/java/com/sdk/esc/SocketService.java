@@ -480,7 +480,7 @@ public class SocketService {
         try {
             byte[] packet = EvfFramePacket.pack(jpeg, seq, tsMs);
             EvfWebRtcService rtc = EvfWebRtcService.peek();
-            if (rtc != null && rtc.trySendFrame(packet)) {
+            if (rtc != null && rtc.isVideoRtcActive() && rtc.trySendFrame(packet)) {
                 return;
             }
         } catch (Exception e) {
