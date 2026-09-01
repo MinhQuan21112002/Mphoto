@@ -43,6 +43,8 @@ public class SocketService {
     private volatile boolean evfWanted;
     private WeakReference<TextureView> previewTextureRef = new WeakReference<>(null);
     private WeakReference<ControlPageCommandHost> commandHostRef = new WeakReference<>(null);
+    private Runnable evfTeardownRunnable;
+    private Runnable evfStopStreamingRunnable;
 
     /**
      * GetRealTimeStatus (USB) không được chạy trên main — sẽ đứng preview/app từng nhịp.
@@ -156,27 +158,46 @@ public class SocketService {
 
         socket.on("evf-stream-subscribe", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
+            if (evfTeardownRunnable != null) {
+                mainHandler.removeCallbacks(evfTeardownRunnable);
+                evfTeardownRunnable = null;
+            }
+            if (evfStopStreamingRunnable != null) {
+                mainHandler.removeCallbacks(evfStopStreamingRunnable);
+                evfStopStreamingRunnable = null;
+            }
             Log.d(TAG, "evf-stream-subscribe");
             evfWanted = true;
-            // Không reset WebRTC ở đây — subscribe có thể tới sau offer và giết P2P đang negotiate.
-            // handleOffer đã resetInternalLocked trước khi tạo PC mới.
-            startEvfStreaming();
+            // Không reset WebRTC ở đây — F5/resubscribe không làm app đứng.
+            if (evfStreamer != null && evfStreamer.isRunning()) {
+                Log.d(TAG, "evf-stream-subscribe — already streaming");
+            } else {
+                startEvfStreaming();
+            }
+            EvfMicSocketCapture.getInstance().setStreamActive(true);
             emitCameraSettingsForControlPage(true);
         });
         socket.on("evf-stream-unsubscribe", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
             Log.d(TAG, "evf-stream-unsubscribe");
             evfWanted = false;
-            EvfWebRtcService rtc = EvfWebRtcService.peek();
-            if (rtc != null) rtc.reset();
-            stopEvfStreaming();
+            EvfMicSocketCapture.getInstance().setStreamActive(false);
+            scheduleEvfStopStreaming();
+            scheduleEvfTeardownReset();
         });
         socket.on("evf-stream-resync", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
+            if (evfStopStreamingRunnable != null) {
+                mainHandler.removeCallbacks(evfStopStreamingRunnable);
+                evfStopStreamingRunnable = null;
+            }
             Log.d(TAG, "evf-stream-resync");
             evfWanted = true;
-            // Không reset WebRTC — giống mlite (resync chỉ để mở lại stream/layout)
-            startEvfStreaming();
+            // Resync layout/WebRTC — không restart camera nếu stream đang chạy (F5).
+            if (evfStreamer == null || !evfStreamer.isRunning()) {
+                startEvfStreaming();
+            }
+            EvfMicSocketCapture.getInstance().setStreamActive(true);
             emitCameraSettingsForControlPage(true);
         });
         socket.on("evf-webrtc-signal", args -> {
@@ -353,18 +374,33 @@ public class SocketService {
         }
     }
 
+    private void applyEvfStreamProfile() {
+        if (evfStreamer == null) return;
+        EvfWebRtcService rtc = EvfWebRtcService.peek();
+        boolean rtcActive = rtc != null && rtc.isVideoRtcActive();
+        if (rtcActive) {
+            evfStreamer.setStreamProfile(320, 32, 50);
+        } else {
+            evfStreamer.setStreamProfile(280, 28, 100);
+        }
+    }
+
     private void startEvfStreaming() {
         if (appContext == null || !evfWanted) return;
         try {
             if (evfStreamer == null) {
                 evfStreamer = new FrontCameraEvfStreamer(appContext, this::emitEvfFrameUpdate);
             }
+            applyEvfStreamProfile();
+            TextureView tv = previewTextureRef.get();
+            if (evfStreamer.isRunning() && tv != null) {
+                Log.d(TAG, "EVF already streaming — skip restart");
+                return;
+            }
             // Gửi đúng khung ngang như tablet (TextureView + transform). Không xoay 90° → không thành dọc.
             evfStreamer.setControlPageTransform(0, false);
-            evfStreamer.setStreamProfile(/*maxEdge*/ 320, /*jpegQ*/ 32, /*intervalMs*/ 50);
             evfStreamer.setApplySensorOrientation(false);
             evfStreamer.setCoverToLandscape32(false);
-            TextureView tv = previewTextureRef.get();
             if (tv == null) {
                 Log.w(TAG, "EVF: chưa có TextureView — đợi attachControlPageBridge");
                 return;
@@ -395,8 +431,52 @@ public class SocketService {
         }
     }
 
+    private void scheduleEvfStopStreaming() {
+        if (evfStopStreamingRunnable != null) {
+            mainHandler.removeCallbacks(evfStopStreamingRunnable);
+        }
+        evfStopStreamingRunnable = () -> {
+            evfStopStreamingRunnable = null;
+            if (evfWanted) return;
+            stopEvfStreaming();
+            Log.d(TAG, "EVF stop streaming (debounced unsubscribe)");
+        };
+        mainHandler.postDelayed(evfStopStreamingRunnable, 1500);
+    }
+
+    private void scheduleEvfTeardownReset() {
+        if (evfTeardownRunnable != null) {
+            mainHandler.removeCallbacks(evfTeardownRunnable);
+        }
+        evfTeardownRunnable = () -> {
+            evfTeardownRunnable = null;
+            if (evfWanted) return;
+            EvfWebRtcService rtc = EvfWebRtcService.peek();
+            if (rtc != null) rtc.reset();
+            Log.d(TAG, "EVF teardown reset (debounced unsubscribe)");
+        };
+        mainHandler.postDelayed(evfTeardownRunnable, 1500);
+    }
+
+    private void emitEvfMicAudioUpdate(byte[] packet) {
+        if (packet == null || packet.length < 6) return;
+        if (socket == null || !socket.connected()) return;
+        String mc = resolveMachineCode();
+        if (mc == null || mc.isEmpty()) return;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("machineCode", mc.toUpperCase());
+            payload.put("encoding", "bin");
+            payload.put("ts", System.currentTimeMillis());
+            socket.emit("evf-mic-audio-update", payload, packet);
+        } catch (Exception e) {
+            Log.w(TAG, "emitEvfMicAudioUpdate: " + e.getMessage());
+        }
+    }
+
     private void emitEvfFrameUpdate(byte[] jpeg, long tsMs, long seq) {
         if (jpeg == null || jpeg.length == 0) return;
+        applyEvfStreamProfile();
         try {
             byte[] packet = EvfFramePacket.pack(jpeg, seq, tsMs);
             EvfWebRtcService rtc = EvfWebRtcService.peek();
@@ -412,14 +492,14 @@ public class SocketService {
         try {
             JSONObject payload = new JSONObject();
             payload.put("machineCode", mc.toUpperCase());
-            payload.put("frame", Base64.encodeToString(jpeg, Base64.NO_WRAP));
             payload.put("mime", "image/jpeg");
+            payload.put("encoding", "bin");
             payload.put("ts", tsMs);
             payload.put("seq", seq);
             payload.put("liveViewSource", "front");
             payload.put("appProduct", APP_PRODUCT);
             payload.put("appPlatform", "android");
-            socket.emit("evf-frame-update", payload);
+            socket.emit("evf-frame-update", payload, jpeg);
         } catch (Exception e) {
             Log.w(TAG, "emitEvfFrameUpdate: " + e.getMessage());
         }
@@ -639,6 +719,7 @@ public class SocketService {
                                 || "true".equalsIgnoreCase(stringValue);
                         EvfWebRtcService rtc = EvfWebRtcService.peek();
                         if (rtc != null) rtc.setMicEnabled(on);
+                        EvfMicSocketCapture.getInstance().setCaptureWanted(on);
                         Log.d(TAG, "evf-mic → " + on);
                         break;
                     }
@@ -818,6 +899,8 @@ public class SocketService {
         if (context != null) {
             this.appContext = context.getApplicationContext();
             EvfWebRtcService.init(appContext, this::emitWebRtcSignal);
+            EvfMicSocketCapture.getInstance().init(appContext);
+            EvfMicSocketCapture.getInstance().setEmitter(this::emitEvfMicAudioUpdate);
             if (socket != null && socket.connected()) {
                 startPrinterStatusPoll();
             }

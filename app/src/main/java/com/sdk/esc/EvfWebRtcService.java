@@ -104,30 +104,14 @@ public final class EvfWebRtcService {
     }
 
     public void reset() {
-        offerGen.incrementAndGet();
         worker.execute(this::resetInternal);
     }
 
     private void resetInternal() {
+        offerGen.incrementAndGet();
         synchronized (sync) {
-            canAddRemoteIce = false;
-            pendingRemoteIce.clear();
-            frameChannelOpen = false;
-            if (frameChannel != null) {
-                try {
-                    frameChannel.close();
-                } catch (Exception ignored) {
-                }
-                frameChannel = null;
-            }
-            if (peerConnection != null) {
-                try {
-                    peerConnection.close();
-                } catch (Exception ignored) {
-                }
-                peerConnection = null;
-            }
-            machineCode = null;
+            pendingOfferAfterClose = null;
+            resetInternalLocked();
         }
         Log.d(TAG, "reset");
     }
@@ -171,15 +155,107 @@ public final class EvfWebRtcService {
         }
     }
 
+    private volatile long lastOfferHandledMs;
+    private volatile boolean closingPeerConnection;
+    private PendingOffer pendingOfferAfterClose;
+
+    private static final class PendingOffer {
+        final String machineCode;
+        final JSONObject payload;
+        final int generation;
+
+        PendingOffer(String machineCode, JSONObject payload, int generation) {
+            this.machineCode = machineCode;
+            this.payload = payload;
+            this.generation = generation;
+        }
+    }
+
     private void handleOffer(String machineCode, JSONObject payload) {
+        long now = System.currentTimeMillis();
+        synchronized (sync) {
+            // Chỉ gộp burst offer khi đang CONNECTING — không chặn offer mới sau F5 (PC cũ còn CONNECTED).
+            if (peerConnection != null && now - lastOfferHandledMs < 500) {
+                PeerConnection.PeerConnectionState st = peerConnection.connectionState();
+                if (st == PeerConnection.PeerConnectionState.CONNECTING) {
+                    Log.d(TAG, "handleOffer coalesced — still connecting");
+                    return;
+                }
+            }
+            lastOfferHandledMs = now;
+        }
         int generation = offerGen.incrementAndGet();
-        try {
-            String sdpText = normalizeSdp(extractSdp(payload));
-            if (sdpText == null || sdpText.isEmpty()) {
-                Log.e(TAG, "handleOffer empty sdp keys=" + payload.keys());
-                emitDiag(machineCode, "error", "empty-sdp");
+        String sdpText = normalizeSdp(extractSdp(payload));
+        if (sdpText == null || sdpText.isEmpty()) {
+            Log.e(TAG, "handleOffer empty sdp keys=" + (payload != null ? payload.keys() : "null"));
+            emitDiag(machineCode, "error", "empty-sdp");
+            return;
+        }
+
+        PendingOffer task = new PendingOffer(machineCode, payload, generation);
+        synchronized (sync) {
+            if (generation != offerGen.get()) return;
+            if (peerConnection != null || closingPeerConnection) {
+                pendingOfferAfterClose = task;
+                if (!closingPeerConnection) {
+                    closingPeerConnection = true;
+                    closePeerConnectionAsyncLocked(this::runPendingOfferAfterClose);
+                }
                 return;
             }
+        }
+        processOfferInternal(task, sdpText);
+    }
+
+    private void runPendingOfferAfterClose() {
+        PendingOffer task;
+        synchronized (sync) {
+            closingPeerConnection = false;
+            task = pendingOfferAfterClose;
+            pendingOfferAfterClose = null;
+        }
+        if (task == null) return;
+        if (task.generation != offerGen.get()) return;
+        String sdpText = normalizeSdp(extractSdp(task.payload));
+        if (sdpText == null || sdpText.isEmpty()) return;
+        processOfferInternal(task, sdpText);
+    }
+
+    /** Close PC trên worker thread — tránh native crash khi offer mới đến lúc PC cũ còn CONNECTED. */
+    private void closePeerConnectionAsyncLocked(Runnable then) {
+        canAddRemoteIce = false;
+        pendingRemoteIce.clear();
+        frameChannelOpen = false;
+        final DataChannel fc = frameChannel;
+        frameChannel = null;
+        final PeerConnection pc = peerConnection;
+        peerConnection = null;
+        machineCode = null;
+        worker.execute(() -> {
+            try {
+                if (fc != null) fc.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                if (pc != null) pc.close();
+            } catch (Exception ignored) {
+            }
+            try {
+                Thread.sleep(150);
+            } catch (InterruptedException ignored) {
+            }
+            synchronized (sync) {
+                releaseMicLocked();
+            }
+            EvfMicSocketCapture.getInstance().syncCaptureState();
+            if (then != null) then.run();
+        });
+    }
+
+    private void processOfferInternal(PendingOffer task, String sdpText) {
+        final String machineCode = task.machineCode;
+        final int generation = task.generation;
+        try {
             emitDiag(machineCode, "sdp-ok", "len=" + sdpText.length()
                     + " head=" + sdpText.substring(0, Math.min(24, sdpText.length())).replace('\r', ' ').replace('\n', '/'));
 
@@ -195,7 +271,7 @@ public final class EvfWebRtcService {
             final PeerConnection pc;
             synchronized (sync) {
                 if (generation != offerGen.get()) return;
-                resetInternalLocked();
+                if (peerConnection != null || closingPeerConnection) return;
                 this.machineCode = machineCode;
                 pc = f.createPeerConnection(config, new PeerObserver(machineCode, generation));
                 if (pc == null) {
@@ -287,6 +363,7 @@ public final class EvfWebRtcService {
             Log.d(TAG, "mic track attached");
             // Áp dụng trạng thái bật/tắt thu đã lưu (Control Page có thể tắt trước).
             if (micAudioTrack != null) micAudioTrack.setEnabled(micCaptureWanted);
+            EvfMicSocketCapture.getInstance().syncCaptureState();
         } catch (Throwable t) {
             Log.w(TAG, "attachMicTrack: " + t.getMessage());
             emitDiag(mid, "mic-skip", String.valueOf(t.getMessage()));
@@ -298,6 +375,7 @@ public final class EvfWebRtcService {
     /** Control Page bật/tắt thu mic (không teardown PeerConnection). */
     public void setMicEnabled(boolean enabled) {
         micCaptureWanted = enabled;
+        EvfMicSocketCapture.getInstance().setCaptureWanted(enabled);
         synchronized (sync) {
             if (micAudioTrack != null) {
                 try {
@@ -308,6 +386,37 @@ public final class EvfWebRtcService {
                 }
             }
         }
+    }
+
+    /** @return true nếu mic đang đi WebRTC RTP ổn định (video P2P cũng phải OK). */
+    public boolean trySendMicPcm(byte[] packet) {
+        return isMicRtcActive();
+    }
+
+    /** Video EVF đang P2P — dùng chọn profile stream (socket fallback dùng profile thấp hơn). */
+    public boolean isVideoRtcActive() {
+        synchronized (sync) {
+            return isVideoRtcPathReadyLocked();
+        }
+    }
+
+    public boolean isMicRtcActive() {
+        if (!micCaptureWanted) return false;
+        synchronized (sync) {
+            return isVideoRtcPathReadyLocked() && isMicRtpReadyLocked();
+        }
+    }
+
+    private boolean isVideoRtcPathReadyLocked() {
+        if (!frameChannelOpen || frameChannel == null || peerConnection == null) return false;
+        if (peerConnection.connectionState() != PeerConnection.PeerConnectionState.CONNECTED) return false;
+        return frameChannel.state() == DataChannel.State.OPEN;
+    }
+
+    private boolean isMicRtpReadyLocked() {
+        if (micAudioTrack == null || peerConnection == null) return false;
+        if (peerConnection.connectionState() != PeerConnection.PeerConnectionState.CONNECTED) return false;
+        return micAudioTrack.enabled();
     }
 
     private void releaseMicLocked() {
@@ -329,25 +438,26 @@ public final class EvfWebRtcService {
     }
 
     private void resetInternalLocked() {
-        canAddRemoteIce = false;
-        pendingRemoteIce.clear();
-        frameChannelOpen = false;
-        releaseMicLocked();
-        if (frameChannel != null) {
-            try {
-                frameChannel.close();
-            } catch (Exception ignored) {
+        synchronized (sync) {
+            if (peerConnection == null && frameChannel == null && !closingPeerConnection) {
+                canAddRemoteIce = false;
+                pendingRemoteIce.clear();
+                frameChannelOpen = false;
+                releaseMicLocked();
+                machineCode = null;
+                EvfMicSocketCapture.getInstance().syncCaptureState();
+                return;
             }
-            frameChannel = null;
-        }
-        if (peerConnection != null) {
-            try {
-                peerConnection.close();
-            } catch (Exception ignored) {
+            pendingOfferAfterClose = null;
+            if (!closingPeerConnection) {
+                closingPeerConnection = true;
+                closePeerConnectionAsyncLocked(() -> {
+                    synchronized (sync) {
+                        closingPeerConnection = false;
+                    }
+                });
             }
-            peerConnection = null;
         }
-        machineCode = null;
     }
 
     private void handleIce(JSONObject payload) {
@@ -451,6 +561,7 @@ public final class EvfWebRtcService {
         } catch (Exception e) {
             Log.w(TAG, "trySendFrame: " + e.getMessage());
             frameChannelOpen = false;
+            EvfMicSocketCapture.getInstance().syncCaptureState();
             return false;
         }
     }
@@ -531,6 +642,7 @@ public final class EvfWebRtcService {
                     || newState == PeerConnection.PeerConnectionState.DISCONNECTED) {
                 frameChannelOpen = false;
             }
+            EvfMicSocketCapture.getInstance().syncCaptureState();
         }
 
         @Override
@@ -579,6 +691,7 @@ public final class EvfWebRtcService {
                     DataChannel.State st = dataChannel.state();
                     frameChannelOpen = st == DataChannel.State.OPEN;
                     Log.d(TAG, "frame channel state=" + st);
+                    EvfMicSocketCapture.getInstance().syncCaptureState();
                 }
 
                 @Override
