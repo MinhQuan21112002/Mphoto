@@ -493,6 +493,7 @@ public class SocketService {
             JSONObject payload = new JSONObject();
             payload.put("machineCode", mc.toUpperCase());
             payload.put("mime", "image/jpeg");
+            payload.put("frame", android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP));
             payload.put("encoding", "bin");
             payload.put("ts", tsMs);
             payload.put("seq", seq);

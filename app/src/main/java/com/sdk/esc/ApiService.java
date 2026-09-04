@@ -543,6 +543,11 @@ public class ApiService {
         }
     }
 
+    /** Bulk sync lượt in gallery — POST body { items: [{ folderId, count }] }. */
+    public static JSONObject syncGalleryPrintStats(String pathAfterApi, String token, JSONObject body) throws Exception {
+        return postJsonAuthed(pathAfterApi, token, body);
+    }
+
     private static JSONObject postJsonAuthed(String pathAfterApi, String token, JSONObject body) throws Exception {
         String path = pathAfterApi.startsWith("/") ? pathAfterApi : ("/" + pathAfterApi);
         URL url = new URL(getApiBaseUrl() + path);

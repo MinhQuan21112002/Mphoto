@@ -72,6 +72,17 @@
         android:textStyle="bold"/>
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnSyncPrintStats"
+        style="@style/MonoPinkButtonSecondary"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginBottom="8dp"
+        android:fontFamily="sans-serif-medium"
+        android:text="Đồng bộ lượt in (0)"
+        android:textSize="13sp"
+        android:textStyle="bold"/>
+
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"

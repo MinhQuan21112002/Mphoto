@@ -307,6 +307,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
             new Thread(() ->
                     GalleryUploadMethodService.getInstance(Activity_Camera2_Manual.this).syncFromServer(tokenSync)
             ).start();
+            new Thread(() -> GalleryPrintStatsStore.trySyncPending(Activity_Camera2_Manual.this, tokenSync)).start();
         }
 
         imgSolve = new ImageSolve(this);
@@ -1955,6 +1956,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         TextView empty = root.findViewById(R.id.textMonoGalleryEmpty);
         ProgressBar progress = root.findViewById(R.id.progressMonoGallery);
         Button btnLoadMore = root.findViewById(R.id.btnLoadMoreMonoGallery);
+        Button btnSyncPrintStats = root.findViewById(R.id.btnSyncPrintStats);
         if (rv == null || progress == null) {
             return;
         }
@@ -1970,6 +1972,55 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         final List<MonoGalleryGroupAdapter.Item> localItems = new ArrayList<>();
         final List<MonoGalleryGroupAdapter.Item> serverItems = new ArrayList<>();
         final int[] visibleCount = {pageSize, pageSize}; // local, server
+
+        final Runnable[] reloadDataRef = new Runnable[1];
+
+        Runnable refreshPrintSyncBtn = () -> {
+            if (btnSyncPrintStats == null) return;
+            GalleryPrintStatsStore.PendingSummary s =
+                    GalleryPrintStatsStore.getPendingSummary(Activity_Camera2_Manual.this, true);
+            btnSyncPrintStats.setText(s.printCount > 0
+                    ? ("Đồng bộ lượt in (" + s.printCount + ")")
+                    : "Đồng bộ lượt in (0)");
+            btnSyncPrintStats.setEnabled(true);
+        };
+        refreshPrintSyncBtn.run();
+        if (btnSyncPrintStats != null) {
+            btnSyncPrintStats.setOnClickListener(v -> {
+                GalleryPrintStatsStore.PendingSummary pending =
+                        GalleryPrintStatsStore.getPendingSummary(Activity_Camera2_Manual.this, true);
+                if (pending.printCount <= 0) {
+                    Toast.makeText(this, "Không có lượt in chờ đồng bộ", Toast.LENGTH_SHORT).show();
+                    refreshPrintSyncBtn.run();
+                    return;
+                }
+                String token = TokenManager.getInstance(this).getToken();
+                if (token == null || token.isEmpty()) {
+                    Toast.makeText(this, "Chưa đăng nhập", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                btnSyncPrintStats.setEnabled(false);
+                btnSyncPrintStats.setText("Đang đồng bộ…");
+                executorService.execute(() -> {
+                    GalleryPrintStatsStore.SyncResult result =
+                            GalleryPrintStatsStore.syncPending(Activity_Camera2_Manual.this, token, true);
+                    runOnUiThread(() -> {
+                        if (result.ok && result.printCount > 0) {
+                            Toast.makeText(this,
+                                    "Đã đồng bộ " + result.printCount + " lượt in (" + result.galleryCount + " gallery)",
+                                    Toast.LENGTH_LONG).show();
+                        } else if (result.ok) {
+                            Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Đồng bộ thất bại: " + result.message, Toast.LENGTH_LONG).show();
+                        }
+                        refreshPrintSyncBtn.run();
+                        if (reloadDataRef[0] != null) reloadDataRef[0].run();
+                        else adapter.notifyDataSetChanged();
+                    });
+                });
+            });
+        }
 
         Runnable renderCurrent = () -> {
             List<MonoGalleryGroupAdapter.Item> src = currentTab[0] == 0 ? localItems : serverItems;
@@ -2039,6 +2090,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                                 sItem.viewUrl = it.optString("viewUrl", buildMonoServerGalleryUrl(folderId));
                                 sItem.synced = true;
                                 sItem.localSource = false;
+                                sItem.printCount = Math.max(0, it.optInt("printCount", 0));
                                 org.json.JSONArray photos = it.optJSONArray("photos");
                                 if (photos != null && photos.length() > 0) {
                                     org.json.JSONObject p0 = photos.optJSONObject(0);
@@ -2066,6 +2118,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                     item.synced = MonoGalleryFolderIds.isSyncedOnServer(l.folderId, serverIds);
                     item.localSource = true;
                     item.viewUrl = buildMonoServerGalleryUrl(canonicalId);
+                    item.printCount = GalleryPrintStatsStore.getDisplayCount(
+                            Activity_Camera2_Manual.this, canonicalId);
+                    if (l.folderId != null && !l.folderId.equals(canonicalId)) {
+                        item.printCount = Math.max(item.printCount,
+                                GalleryPrintStatsStore.getDisplayCount(
+                                        Activity_Camera2_Manual.this, l.folderId));
+                    }
                     locals.add(item);
                 }
                 runOnUiThread(() -> {
@@ -2079,6 +2138,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                 });
             });
         };
+        reloadDataRef[0] = reloadData;
 
         adapter.setListener(new MonoGalleryGroupAdapter.Listener() {
             @Override
@@ -2102,7 +2162,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                             runOnUiThread(() -> Toast.makeText(Activity_Camera2_Manual.this, "Không đọc được ảnh để in", Toast.LENGTH_SHORT).show());
                             return;
                         }
-                        printImage(bm, 0, 576, false, PrintBitmapMode.get(Activity_Camera2_Manual.this));
+                        // Ghi lượt in khi in lại từ gallery
+                        try {
+                            if (item.folderId != null && !item.folderId.isEmpty()) {
+                                GalleryPrintStatsStore.record(Activity_Camera2_Manual.this, item.folderId, 1);
+                            }
+                        } catch (Exception ignored) {}
+                        printImage(bm, 0, 576, false, PrintBitmapMode.get(Activity_Camera2_Manual.this),
+                                null);
                         if (isShowQrEnabled()) {
                             String qrUrl = buildMonoServerGalleryUrl(item.folderId);
                             printMonoDriveQrForUploadedFileLink(qrUrl);
@@ -2705,6 +2772,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                             printMonoDriveQrForUploadedFileLink(buildMonoServerGalleryUrl(monoFolderNameTest));
                         }
                         scheduleServerUpload(tmp, monoFolderNameTest);
+                        try {
+                            GalleryPrintStatsStore.record(Activity_Camera2_Manual.this, monoFolderNameTest, 1);
+                        } catch (Exception ignored) {}
                         imgSolve.clearCache();
                         resumeLiveViewAfterPrint();
                     } catch (Exception e) {
@@ -2767,8 +2837,15 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                         combinedBitmap,
                         0,
                         PRINT_THREE_INCH , false,
-                        printMode
+                        printMode,
+                        null
                 );
+                // Ghi lượt in ngay khi gửi in (không phụ thuộc PrintBitmap async / recycle bitmap)
+                try {
+                    GalleryPrintStatsStore.record(Activity_Camera2_Manual.this, monoFolderName, 1);
+                } catch (Exception statsEx) {
+                    Log.w(TAG, "print stats record: " + statsEx.getMessage());
+                }
 
 
 
@@ -2968,6 +3045,11 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
 
     public void printImage(final Bitmap bitmap, final int light, final int size,
                            final boolean isRotate, final int sype) {
+        printImage(bitmap, light, size, isRotate, sype, null);
+    }
+
+    public void printImage(final Bitmap bitmap, final int light, final int size,
+                           final boolean isRotate, final int sype, final String statsFolderId) {
 
 
         executorService.execute(() -> {
@@ -2984,11 +3066,13 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                 bitmapPrint = Utility.Tobitmap(bitmapPrint, size, Utility.getHeight(size, bitmapPrint.getWidth(), bitmapPrint.getHeight()));
 
 
+            boolean printedOk = false;
             try {
                 // Dither (sype=1): mật độ mực vừa phải — tránh quá nhạt trên nhiệt
                 Print.SetPrintDensity((byte) 4);
                 Print.setPrintResolution(203,203);
                 Print.PrintBitmap(bitmapPrint, sype, light);  // In ảnh
+                printedOk = true;
 
 
             } catch (Exception e) {
@@ -2996,8 +3080,16 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                 try {
                     // Fallback for some printer firmwares that fail with setPrintResolution/light params.
                     Print.PrintBitmap(bitmapPrint, PrintBitmapMode.get(Activity_Camera2_Manual.this), 0);
+                    printedOk = true;
                 } catch (Exception ex) {
                     notifyPrintFailure(ex);
+                }
+            }
+            if (printedOk && statsFolderId != null && !statsFolderId.trim().isEmpty()) {
+                try {
+                    GalleryPrintStatsStore.record(Activity_Camera2_Manual.this, statsFolderId.trim(), 1);
+                } catch (Exception statsEx) {
+                    Log.w(TAG, "print stats: " + statsEx.getMessage());
                 }
             }
             if (bitmap != null && !bitmap.isRecycled()) {

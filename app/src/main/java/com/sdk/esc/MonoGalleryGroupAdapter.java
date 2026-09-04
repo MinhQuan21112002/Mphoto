@@ -30,6 +30,8 @@ public class MonoGalleryGroupAdapter extends RecyclerView.Adapter<MonoGalleryGro
         public String viewUrl;
         public boolean synced;
         public boolean localSource;
+        /** Số lượt in: local từ file tạm, server từ API. */
+        public int printCount;
     }
 
     public interface Listener {
@@ -71,6 +73,19 @@ public class MonoGalleryGroupAdapter extends RecyclerView.Adapter<MonoGalleryGro
         h.textSyncState.setText(item.synced ? "Đã đồng bộ" : "Chưa đồng bộ");
         h.textSyncState.setTextColor(item.synced ? 0xFF2E7D32 : 0xFFD84315);
 
+        int printCount = item.printCount;
+        if (item.localSource) {
+            int localCount = GalleryPrintStatsStore.getDisplayCount(h.itemView.getContext(), item.folderId);
+            if (item.localFolderId != null && !item.localFolderId.equals(item.folderId)) {
+                localCount = Math.max(localCount,
+                        GalleryPrintStatsStore.getDisplayCount(h.itemView.getContext(), item.localFolderId));
+            }
+            printCount = Math.max(printCount, localCount);
+        }
+        // Luôn hiện mục số lượt in (kể cả 0) để user thấy
+        h.textPrintCount.setVisibility(View.VISIBLE);
+        h.textPrintCount.setText("Số lượt in: " + Math.max(0, printCount));
+
         if (item.previewUri != null) {
             Glide.with(h.imagePreview).load(item.previewUri).into(h.imagePreview);
         } else {
@@ -106,6 +121,7 @@ public class MonoGalleryGroupAdapter extends RecyclerView.Adapter<MonoGalleryGro
         final ImageView imagePreview;
         final TextView textFolderId;
         final TextView textSyncState;
+        final TextView textPrintCount;
         final Button btnView;
         final Button btnPrint;
         final Button btnSync;
@@ -116,6 +132,7 @@ public class MonoGalleryGroupAdapter extends RecyclerView.Adapter<MonoGalleryGro
             imagePreview = itemView.findViewById(R.id.imageMonoGroupPreview);
             textFolderId = itemView.findViewById(R.id.textMonoGroupFolderId);
             textSyncState = itemView.findViewById(R.id.textMonoGroupSyncState);
+            textPrintCount = itemView.findViewById(R.id.textMonoGroupPrintCount);
             btnView = itemView.findViewById(R.id.btnMonoGroupView);
             btnPrint = itemView.findViewById(R.id.btnMonoGroupPrint);
             btnSync = itemView.findViewById(R.id.btnMonoGroupSync);
