@@ -599,6 +599,16 @@ public class SocketService {
                 payload.put("printerPaperUsed", -1);
                 payload.put("printerPaperTotal", -1);
                 payload.put("printerPaperRemaining", -1);
+
+                try {
+                    GalleryPrintStatsStore.PendingSummary pending =
+                            GalleryPrintStatsStore.getPendingSummary(ctx, true);
+                    payload.put("pendingPrintCount", pending.printCount);
+                    payload.put("pendingPrintGalleryCount", pending.galleryCount);
+                } catch (Exception ignored) {
+                    payload.put("pendingPrintCount", 0);
+                    payload.put("pendingPrintGalleryCount", 0);
+                }
             }
 
             socket.emit("camera-settings-update", payload);
@@ -730,6 +740,26 @@ public class SocketService {
                     case "web-request-mono-subs":
                         syncMonoSubsThenNotify();
                         return;
+                    case "web-sync-print-stats": {
+                        final Context syncCtx = ctx;
+                        new Thread(() -> {
+                            try {
+                                String token = syncCtx != null
+                                        ? TokenManager.getInstance(syncCtx).getToken()
+                                        : null;
+                                if (token != null && !token.isEmpty()) {
+                                    GalleryPrintStatsStore.syncPending(syncCtx, token, true);
+                                } else {
+                                    Log.w(TAG, "web-sync-print-stats: no token");
+                                }
+                            } catch (Exception e) {
+                                Log.e(TAG, "web-sync-print-stats", e);
+                            } finally {
+                                mainHandler.post(() -> emitCameraSettingsForControlPage(true));
+                            }
+                        }, "web-sync-print-stats").start();
+                        return;
+                    }
                     default:
                         Log.d(TAG, "camera-command ignored: " + prop);
                         return;

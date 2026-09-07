@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="wrap_content"
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/mono_dialog_panel"
     android:orientation="vertical"
@@ -48,9 +48,10 @@
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewImages"
-        android:layout_width="700dp"
+        android:layout_width="match_parent"
         android:layout_height="420dp"
         android:layout_marginTop="16dp"
+        android:clipToPadding="false"
         android:overScrollMode="ifContentScrolls" />
 
     <Button

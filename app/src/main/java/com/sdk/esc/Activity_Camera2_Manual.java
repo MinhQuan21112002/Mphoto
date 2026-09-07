@@ -692,7 +692,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
 //        Button btnPickImageDrive = dialogView.findViewById(R.id.btnPickImageDrive);
         RecyclerView recyclerView = dialogView.findViewById(R.id.recyclerViewImages);
 
-        recyclerView.setLayoutManager(new GridLayoutManager(this, 3));
+        // Right-half dialog is narrow — 2 columns avoids clipping thumbnails
+        recyclerView.setLayoutManager(new GridLayoutManager(this, 2));
 
         SharedPreferences preferences = getSharedPreferences("MyAppPrefs2", Context.MODE_PRIVATE);
         currentIndexImageView2 = preferences.getInt("indexImageView2", 0);
@@ -2017,6 +2018,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                         refreshPrintSyncBtn.run();
                         if (reloadDataRef[0] != null) reloadDataRef[0].run();
                         else adapter.notifyDataSetChanged();
+                        try {
+                            SocketService.getInstance().emitCameraSettingsForControlPage(true);
+                        } catch (Exception ignored) { }
                     });
                 });
             });
