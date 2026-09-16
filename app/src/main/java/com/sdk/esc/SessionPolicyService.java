@@ -19,6 +19,10 @@ public final class SessionPolicyService {
     private static final String CHANNEL = "mono";
     /** -1 = vô hạn */
     private static final int UNLIMITED = -1;
+    public static final int DEFAULT_COLLECTION_RETENTION_DAYS = 90;
+    public static final int MIN_COLLECTION_RETENTION_DAYS = 14;
+    public static final int MAX_COLLECTION_RETENTION_DAYS = 150;
+    public static final int GALLERY_RETENTION_EXTRA_DAYS = 15;
 
     private static SessionPolicyService instance;
     private final Context appContext;
@@ -56,6 +60,7 @@ public final class SessionPolicyService {
                 .putInt(keyCurrentDays(), stored)
                 .putInt(keyInitialDays(), stored)
                 .apply();
+        applyCollectionRetentionFromUser(user);
         Log.d(TAG, "onLogin mono days=" + (days == null ? "unlimited" : days));
     }
 
@@ -74,6 +79,48 @@ public final class SessionPolicyService {
                 applyForceLogout(CHANNEL, forceMs);
             }
         }
+        applyCollectionRetentionFromStatus(status);
+    }
+
+    public void applyCollectionRetention(String channel, int days) {
+        if (!CHANNEL.equalsIgnoreCase(channel)) {
+            return;
+        }
+        prefs.edit().putInt(keyCollectionRetentionDays(), clampRetention(days)).apply();
+    }
+
+    /** Ngày giữ collection (mặc định 90). Gallery lẻ = giá trị này + 15. */
+    public int getCollectionRetentionDays() {
+        return clampRetention(prefs.getInt(keyCollectionRetentionDays(), DEFAULT_COLLECTION_RETENTION_DAYS));
+    }
+
+    public int getGalleryRetentionDays() {
+        return getCollectionRetentionDays() + GALLERY_RETENTION_EXTRA_DAYS;
+    }
+
+    private void applyCollectionRetentionFromUser(JSONObject user) {
+        applyCollectionRetentionFromMap(user.optJSONObject("collectionRetentionDays"));
+    }
+
+    private void applyCollectionRetentionFromStatus(JSONObject status) {
+        applyCollectionRetentionFromMap(status.optJSONObject("collectionRetentionDays"));
+    }
+
+    private void applyCollectionRetentionFromMap(JSONObject map) {
+        if (map == null || map.isNull(CHANNEL)) {
+            return;
+        }
+        applyCollectionRetention(CHANNEL, map.optInt(CHANNEL, DEFAULT_COLLECTION_RETENTION_DAYS));
+    }
+
+    private static int clampRetention(int days) {
+        if (days < MIN_COLLECTION_RETENTION_DAYS) {
+            return MIN_COLLECTION_RETENTION_DAYS;
+        }
+        if (days > MAX_COLLECTION_RETENTION_DAYS) {
+            return MAX_COLLECTION_RETENTION_DAYS;
+        }
+        return days;
     }
 
     public void applyLoginDuration(String channel, Integer days) {
@@ -258,5 +305,9 @@ public final class SessionPolicyService {
 
     private String keyAckForceLogoutMs() {
         return "ack_force_logout_ms_" + CHANNEL;
+    }
+
+    private String keyCollectionRetentionDays() {
+        return "collection_retention_days_" + CHANNEL;
     }
 }

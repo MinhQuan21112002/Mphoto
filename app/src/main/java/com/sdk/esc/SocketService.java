@@ -154,6 +154,7 @@ public class SocketService {
             }
         });
         socket.on("auth:session-policy-changed", args -> handleSessionPolicySocket(args));
+        socket.on("collection:retention-changed", args -> handleCollectionRetentionSocket(args));
         socket.on("auth:force-logout", args -> handleForceLogoutSocket(args));
 
         socket.on("evf-stream-subscribe", args -> {
@@ -839,6 +840,28 @@ public class SocketService {
             SessionPolicyService.getInstance(appContext).applyLoginDuration(channel, days);
         } catch (Exception e) {
             Log.e(TAG, "auth:session-policy-changed", e);
+        }
+    }
+
+    private void handleCollectionRetentionSocket(Object[] args) {
+        try {
+            if (appContext == null) {
+                return;
+            }
+            JSONObject data = coerceJsonObject(args);
+            if (data == null) {
+                return;
+            }
+            String channel = data.optString("channel", "");
+            if (!"mono".equalsIgnoreCase(channel)) {
+                return;
+            }
+            int days = data.optInt(
+                    "collectionRetentionDays",
+                    SessionPolicyService.DEFAULT_COLLECTION_RETENTION_DAYS);
+            SessionPolicyService.getInstance(appContext).applyCollectionRetention(channel, days);
+        } catch (Exception e) {
+            Log.e(TAG, "collection:retention-changed", e);
         }
     }
 

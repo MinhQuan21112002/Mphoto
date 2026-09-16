@@ -17,19 +17,18 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Tự xóa gallery Mono quá hạn (mặc định 7 ngày): local + server.
+ * Tự xóa gallery Mono quá hạn: local + server.
  * <p>Luồng an toàn:
  * <ul>
  *   <li>Còn trên server → xóa server trước; chỉ xóa local khi server đã xóa OK.</li>
  *   <li>Lần mở app sau: nếu local còn mà server đã không còn → xóa local luôn.</li>
  *   <li>Server xóa lỗi → giữ local, lần sau thử lại.</li>
  * </ul>
+ * Thời hạn lấy từ admin (collection retention + 15 ngày). Mặc định 90+15.
  * Server: gom {@code folderId} quá hạn — gọi {@code POST /mono-results/delete-galleries} theo batch.
  */
 public final class MonoGalleryCleanup {
     private static final String TAG = "MonoGalleryCleanup";
-    /** Giữ gallery tối đa 1 tuần trên máy Mono. */
-    public static final int RETENTION_DAYS = 7;
     /** Tối đa ID mỗi request batch (tránh body/timeout khi Mono có rất nhiều gallery). */
     private static final int DELETE_BATCH_SIZE = 200;
 
@@ -45,6 +44,16 @@ public final class MonoGalleryCleanup {
         new Thread(() -> {
             running = true;
             try {
+                // Vào app: GET API cập nhật retention trước (bù khi miss socket), rồi mới cleanup
+                TokenManager tm = TokenManager.getInstance(app);
+                String token = tm.getToken();
+                if (tm.canUseCloudFeatures() && token != null && !token.isEmpty()) {
+                    try {
+                        GalleryUploadMethodService.getInstance(app).syncFromServer(token);
+                    } catch (Exception e) {
+                        Log.w(TAG, "sync retention before cleanup failed", e);
+                    }
+                }
                 runCleanup(app);
             } catch (Exception e) {
                 Log.w(TAG, "runCleanup failed", e);
@@ -55,7 +64,8 @@ public final class MonoGalleryCleanup {
     }
 
     private static void runCleanup(Context context) {
-        long cutoffMs = System.currentTimeMillis() - RETENTION_DAYS * 24L * 60 * 60 * 1000L;
+        int retentionDays = SessionPolicyService.getInstance(context).getGalleryRetentionDays();
+        long cutoffMs = System.currentTimeMillis() - retentionDays * 24L * 60 * 60 * 1000L;
         TokenManager tm = TokenManager.getInstance(context);
         String token = tm.getToken();
         boolean canDeleteServer = tm.canUseCloudFeatures() && token != null && !token.isEmpty();
