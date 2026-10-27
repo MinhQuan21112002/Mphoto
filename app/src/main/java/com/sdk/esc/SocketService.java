@@ -2,6 +2,7 @@ package com.sdk.esc;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -716,6 +717,12 @@ public class SocketService {
                     case "mono-back-to-main":
                         if (host != null) host.onControlPageNavigateBackToMain();
                         break;
+                    case "restart-app":
+                        restartAppProcess();
+                        return;
+                    case "shutdown-app":
+                        shutdownAppProcess();
+                        return;
                     case "wake-device":
                     case "wake-screen": {
                         Activity act = host instanceof Activity ? (Activity) host : null;
@@ -769,6 +776,46 @@ public class SocketService {
             } catch (Exception e) {
                 Log.e(TAG, "handleCameraCommand " + prop, e);
             }
+        });
+    }
+
+    /** Control Page: đóng hẳn app, không mở lại. */
+    private void shutdownAppProcess() {
+        mainHandler.post(() -> {
+            try {
+                if (socket != null) socket.disconnect();
+            } catch (Exception ignored) {
+            }
+            try {
+                ControlPageCommandHost host = commandHostRef.get();
+                if (host instanceof Activity) {
+                    ((Activity) host).finishAffinity();
+                }
+            } catch (Exception ignored) {
+            }
+            Log.d(TAG, "shutdown-app");
+            Runtime.getRuntime().exit(0);
+        });
+    }
+
+    /** Control Page: khởi động lại process, giữ phiên đăng nhập. */
+    private void restartAppProcess() {
+        if (appContext == null) return;
+        try {
+            Intent intent = new Intent(appContext, LoginActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            appContext.startActivity(intent);
+            Log.d(TAG, "restart-app: relaunch");
+        } catch (Exception e) {
+            Log.e(TAG, "restart-app", e);
+            return;
+        }
+        mainHandler.post(() -> {
+            try {
+                if (socket != null) socket.disconnect();
+            } catch (Exception ignored) {
+            }
+            Runtime.getRuntime().exit(0);
         });
     }
 
