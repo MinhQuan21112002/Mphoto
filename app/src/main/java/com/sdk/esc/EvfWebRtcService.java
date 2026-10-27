@@ -113,6 +113,7 @@ public final class EvfWebRtcService {
 
     private void resetInternal() {
         offerGen.incrementAndGet();
+        offerInFlight = false;
         synchronized (sync) {
             pendingOfferAfterClose = null;
             resetInternalLocked();
@@ -160,6 +161,8 @@ public final class EvfWebRtcService {
     }
 
     private volatile long lastOfferHandledMs;
+    private volatile boolean offerInFlight;
+    private volatile long offerStartedMs;
     private volatile boolean closingPeerConnection;
     private PendingOffer pendingOfferAfterClose;
 
@@ -178,19 +181,27 @@ public final class EvfWebRtcService {
     private void handleOffer(String machineCode, JSONObject payload) {
         long now = System.currentTimeMillis();
         synchronized (sync) {
-            // Chỉ gộp burst offer khi đang CONNECTING — không chặn offer mới sau F5 (PC cũ còn CONNECTED).
-            if (peerConnection != null && now - lastOfferHandledMs < 500) {
+            if (offerInFlight && now - offerStartedMs < 8000) {
+                Log.d(TAG, "handleOffer ignored — negotiation in progress");
+                return;
+            }
+            if (peerConnection != null && now - lastOfferHandledMs < 2500) {
                 PeerConnection.PeerConnectionState st = peerConnection.connectionState();
-                if (st == PeerConnection.PeerConnectionState.CONNECTING) {
-                    Log.d(TAG, "handleOffer coalesced — still connecting");
+                if (st == PeerConnection.PeerConnectionState.NEW
+                        || st == PeerConnection.PeerConnectionState.CONNECTING
+                        || st == PeerConnection.PeerConnectionState.CONNECTED) {
+                    Log.d(TAG, "handleOffer ignored — recent session still up");
                     return;
                 }
             }
+            offerInFlight = true;
+            offerStartedMs = now;
             lastOfferHandledMs = now;
         }
         int generation = offerGen.incrementAndGet();
         String sdpText = normalizeSdp(extractSdp(payload));
         if (sdpText == null || sdpText.isEmpty()) {
+            offerInFlight = false;
             Log.e(TAG, "handleOffer empty sdp keys=" + (payload != null ? payload.keys() : "null"));
             emitDiag(machineCode, "error", "empty-sdp");
             return;
@@ -309,6 +320,7 @@ public final class EvfWebRtcService {
                                         flushPendingIceLocked(pc);
                                     }
                                     emitAnswer(machineCode, answer.description);
+                                    offerInFlight = false;
                                     emitDiag(machineCode, "answer-sent", "");
                                     Log.d(TAG, "answer sent");
                                 }
@@ -337,6 +349,7 @@ public final class EvfWebRtcService {
             }, offer);
         } catch (Exception e) {
             Log.e(TAG, "handleOffer", e);
+            offerInFlight = false;
             emitDiag(machineCode, "error", e.getClass().getSimpleName() + ": " + e.getMessage());
             if (generation == offerGen.get()) resetInternal();
         }

@@ -52,17 +52,13 @@ public class SocketService {
     private final AtomicInteger micEmitGate = new AtomicInteger(0);
     private volatile long evfCooldownUntilMs = 0L;
     private volatile boolean wantConnected = false;
+    private volatile boolean pingWaiting = false;
+    private long pingSentAt = 0L;
     private final Runnable connWatchRunnable = new Runnable() {
         @Override
         public void run() {
             try {
-                if (wantConnected) {
-                    if (socket == null) ensureSocket();
-                    if (socket != null && !socket.connected()) {
-                        Log.d(TAG, "conn watch: socket down, connect()");
-                        socket.connect();
-                    }
-                }
+                ensureLiveSocket();
             } catch (Exception e) {
                 Log.w(TAG, "conn watch: " + e.getMessage());
             }
@@ -154,12 +150,21 @@ public class SocketService {
             emitJoinMachineAppRoomIfPending();
             emitJoinUserRoomIfPending();
             startPrinterStatusPoll();
+            pingWaiting = false;
             if (evfWanted) {
                 startEvfStreaming();
                 emitCameraSettingsForControlPage(true);
             }
         });
-        socket.on(Socket.EVENT_DISCONNECT, args -> Log.d(TAG, "Socket disconnected"));
+        socket.on(Socket.EVENT_DISCONNECT, args -> {
+            Log.d(TAG, "Socket disconnected");
+            pingWaiting = false;
+            evfEmitGate.set(0);
+            micEmitGate.set(0);
+            if (wantConnected) {
+                mainHandler.postDelayed(this::ensureLiveSocket, 1200);
+            }
+        });
         socket.on(Socket.EVENT_CONNECT_ERROR, args -> {
             if (args != null && args.length > 0) {
                 Log.e(TAG, "Socket connect error: " + args[0]);
@@ -1052,6 +1057,64 @@ public class SocketService {
             EvfMicSocketCapture.getInstance().setEmitter(this::emitEvfMicAudioUpdate);
             if (socket != null && socket.connected()) {
                 startPrinterStatusPoll();
+            }
+        }
+    }
+
+    private void ensureLiveSocket() {
+        if (!wantConnected) return;
+        if (socket == null) ensureSocket();
+        if (socket == null) return;
+        if (!socket.connected()) {
+            pingWaiting = false;
+            Log.d(TAG, "ensureLive: down, connect()");
+            try {
+                socket.connect();
+            } catch (Exception e) {
+                rebuildSocket();
+            }
+            return;
+        }
+        if (pingWaiting && System.currentTimeMillis() - pingSentAt > 12000L) {
+            Log.w(TAG, "ensureLive: no pong, rebuild socket");
+            pingWaiting = false;
+            evfEmitGate.set(0);
+            micEmitGate.set(0);
+            rebuildSocket();
+            return;
+        }
+        if (!pingWaiting) {
+            pingWaiting = true;
+            pingSentAt = System.currentTimeMillis();
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("t", pingSentAt);
+                socket.emit("app-socket-ping", payload, (Ack) args -> pingWaiting = false);
+            } catch (Exception e) {
+                pingWaiting = false;
+                Log.w(TAG, "ensureLive ping: " + e.getMessage());
+            }
+        }
+    }
+
+    private void rebuildSocket() {
+        Log.w(TAG, "rebuild socket");
+        try {
+            if (socket != null) {
+                socket.off();
+                socket.disconnect();
+            }
+        } catch (Exception ignored) {
+        }
+        socket = null;
+        boundSocketUrl = null;
+        pingWaiting = false;
+        ensureSocket();
+        if (socket != null) {
+            try {
+                socket.connect();
+            } catch (Exception e) {
+                Log.w(TAG, "rebuild connect: " + e.getMessage());
             }
         }
     }
