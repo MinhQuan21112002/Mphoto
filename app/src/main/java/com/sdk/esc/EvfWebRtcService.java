@@ -104,6 +104,10 @@ public final class EvfWebRtcService {
     }
 
     public void reset() {
+        try {
+            SocketService.getInstance().armEvfSocketFallbackCooldown(700);
+        } catch (Exception ignored) {
+        }
         worker.execute(this::resetInternal);
     }
 

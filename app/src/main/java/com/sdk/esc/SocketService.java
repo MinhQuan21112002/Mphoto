@@ -7,7 +7,6 @@ import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.util.Base64;
 import android.util.Log;
 import android.view.TextureView;
 
@@ -16,6 +15,9 @@ import org.json.JSONObject;
 import java.lang.ref.WeakReference;
 import java.net.URISyntaxException;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
+import io.socket.client.Ack;
 import io.socket.client.IO;
 import io.socket.client.Socket;
 
@@ -46,6 +48,27 @@ public class SocketService {
     private WeakReference<ControlPageCommandHost> commandHostRef = new WeakReference<>(null);
     private Runnable evfTeardownRunnable;
     private Runnable evfStopStreamingRunnable;
+    private final AtomicInteger evfEmitGate = new AtomicInteger(0);
+    private final AtomicInteger micEmitGate = new AtomicInteger(0);
+    private volatile long evfCooldownUntilMs = 0L;
+    private volatile boolean wantConnected = false;
+    private final Runnable connWatchRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (wantConnected) {
+                    if (socket == null) ensureSocket();
+                    if (socket != null && !socket.connected()) {
+                        Log.d(TAG, "conn watch: socket down, connect()");
+                        socket.connect();
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "conn watch: " + e.getMessage());
+            }
+            mainHandler.postDelayed(this, 8000);
+        }
+    };
 
     /**
      * GetRealTimeStatus (USB) không được chạy trên main — sẽ đứng preview/app từng nhịp.
@@ -95,11 +118,14 @@ public class SocketService {
             IO.Options opts = new IO.Options();
             opts.forceNew = true;
             opts.reconnection = true;
+            opts.reconnectionAttempts = Integer.MAX_VALUE;
             opts.reconnectionDelay = 1000;
             opts.transports = new String[]{"websocket", "polling"};
             socket = IO.socket(url, opts);
             boundSocketUrl = url;
             setupListeners();
+            mainHandler.removeCallbacks(connWatchRunnable);
+            mainHandler.postDelayed(connWatchRunnable, 8000);
             Log.d(TAG, "Socket bound to " + url);
         } catch (URISyntaxException e) {
             Log.e(TAG, "Socket init error", e);
@@ -383,7 +409,7 @@ public class SocketService {
         if (rtcActive) {
             evfStreamer.setStreamProfile(320, 32, 50);
         } else {
-            evfStreamer.setStreamProfile(280, 28, 100);
+            evfStreamer.setStreamProfile(240, 28, 400);
         }
     }
 
@@ -443,7 +469,7 @@ public class SocketService {
             stopEvfStreaming();
             Log.d(TAG, "EVF stop streaming (debounced unsubscribe)");
         };
-        mainHandler.postDelayed(evfStopStreamingRunnable, 1500);
+        mainHandler.postDelayed(evfStopStreamingRunnable, 6000);
     }
 
     private void scheduleEvfTeardownReset() {
@@ -457,12 +483,36 @@ public class SocketService {
             if (rtc != null) rtc.reset();
             Log.d(TAG, "EVF teardown reset (debounced unsubscribe)");
         };
-        mainHandler.postDelayed(evfTeardownRunnable, 1500);
+        mainHandler.postDelayed(evfTeardownRunnable, 6000);
+    }
+
+    public void armEvfSocketFallbackCooldown(int ms) {
+        long until = System.currentTimeMillis() + Math.max(100, ms);
+        if (until > evfCooldownUntilMs) evfCooldownUntilMs = until;
+    }
+
+    private void emitBinaryOneAtATime(String event, JSONObject payload, byte[] bin, int timeoutMs, AtomicInteger gate) {
+        if (!evfWanted || socket == null || !socket.connected() || payload == null || bin == null) return;
+        if (System.currentTimeMillis() < evfCooldownUntilMs) return;
+        if (!gate.compareAndSet(0, 1)) return;
+        final Runnable timeout = () -> {
+            if (gate.compareAndSet(1, 0)) armEvfSocketFallbackCooldown(2000);
+        };
+        mainHandler.postDelayed(timeout, timeoutMs);
+        try {
+            socket.emit(event, payload, bin, (Ack) args -> mainHandler.post(() -> {
+                mainHandler.removeCallbacks(timeout);
+                gate.set(0);
+            }));
+        } catch (Exception e) {
+            mainHandler.removeCallbacks(timeout);
+            gate.set(0);
+            Log.w(TAG, event + ": " + e.getMessage());
+        }
     }
 
     private void emitEvfMicAudioUpdate(byte[] packet) {
         if (packet == null || packet.length < 6) return;
-        if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
         if (mc == null || mc.isEmpty()) return;
         try {
@@ -470,7 +520,7 @@ public class SocketService {
             payload.put("machineCode", mc.toUpperCase());
             payload.put("encoding", "bin");
             payload.put("ts", System.currentTimeMillis());
-            socket.emit("evf-mic-audio-update", payload, packet);
+            emitBinaryOneAtATime("evf-mic-audio-update", payload, packet, 400, micEmitGate);
         } catch (Exception e) {
             Log.w(TAG, "emitEvfMicAudioUpdate: " + e.getMessage());
         }
@@ -488,21 +538,19 @@ public class SocketService {
         } catch (Exception e) {
             Log.w(TAG, "WebRTC frame send: " + e.getMessage());
         }
-        if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
         if (mc == null || mc.isEmpty()) return;
         try {
             JSONObject payload = new JSONObject();
             payload.put("machineCode", mc.toUpperCase());
             payload.put("mime", "image/jpeg");
-            payload.put("frame", android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP));
             payload.put("encoding", "bin");
             payload.put("ts", tsMs);
             payload.put("seq", seq);
             payload.put("liveViewSource", "front");
             payload.put("appProduct", APP_PRODUCT);
             payload.put("appPlatform", "android");
-            socket.emit("evf-frame-update", payload, jpeg);
+            emitBinaryOneAtATime("evf-frame-update", payload, jpeg, 700, evfEmitGate);
         } catch (Exception e) {
             Log.w(TAG, "emitEvfFrameUpdate: " + e.getMessage());
         }
@@ -1009,6 +1057,7 @@ public class SocketService {
     }
 
     public void connect() {
+        wantConnected = true;
         ensureSocket();
         if (socket != null && !socket.connected()) {
             socket.connect();
@@ -1021,6 +1070,7 @@ public class SocketService {
 
     public void disconnect() {
         try {
+            wantConnected = false;
             evfWanted = false;
             stopPrinterStatusPoll();
             stopEvfStreaming();
