@@ -332,17 +332,42 @@
         </LinearLayout>
     </FrameLayout>
 
-    <ImageButton
-        android:id="@+id/button_settings"
+    <FrameLayout
         android:layout_width="50dp"
         android:layout_height="50dp"
         android:layout_alignParentEnd="true"
         android:layout_alignParentTop="true"
         android:layout_margin="16dp"
-        android:background="@null"
-        android:contentDescription="@string/settings"
-        android:scaleType="fitCenter"
-        android:src="@drawable/btn_setting" />
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <ImageButton
+            android:id="@+id/button_settings"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@null"
+            android:contentDescription="@string/settings"
+            android:scaleType="fitCenter"
+            android:src="@drawable/btn_setting"
+            app:tint="@color/mp_brand_primary" />
+
+        <TextView
+            android:id="@+id/settingsUpdateBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="18dp"
+            android:layout_gravity="top|end"
+            android:background="@drawable/bg_update_count"
+            android:elevation="8dp"
+            android:gravity="center"
+            android:minWidth="18dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:text="1"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <ImageButton
         android:id="@+id/btnChangeLanguage"

@@ -3,6 +3,8 @@ package com.sdk.esc;
 import com.mphoto.mono.R;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
@@ -195,6 +197,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
     @Nullable private androidx.appcompat.widget.SwitchCompat openSettingsSwDownload;
     @Nullable private Spinner openSettingsSpinnerPrintMode;
     private boolean settingsDialogUpdatingFromRemote;
+    private TextView settingsUpdateBadge;
+    private ObjectAnimator settingsUpdateBadgeBlink;
+    private Button appUpdateProgressButton;
+    private ProgressBar appUpdateProgressBar;
+    private Button appUpdateInstallButton;
+    private boolean appUpdateInstallHeld;
     @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -250,6 +258,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         frameMonoSecond = findViewById(R.id.frame_mono_second);
         ImageButton btnChangeLanguage = findViewById(R.id.btnChangeLanguage);
         ImageButton settingButton = findViewById(R.id.button_settings);
+        settingsUpdateBadge = findViewById(R.id.settingsUpdateBadge);
+        SoftwareUpdateHelper.acknowledgeInstalledBuild(this);
+        refreshSettingsUpdateBadge();
         ImageButton backButton = findViewById(R.id.button_back);
         //-----------------------------------------------------------------------------
 
@@ -1599,6 +1610,77 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         findViewById(R.id.exposureText11).setOnClickListener(v -> { applyExpose(EXPO_US[12]); updateExposure(EXPO_US[12]); refreshIsoExposurePanelDisplay(); });
     }
 
+    private void bindAppUpdateUiListeners() {
+        SoftwareUpdateHelper.setBadgeListener(this::refreshSettingsUpdateBadge);
+        SoftwareUpdateHelper.setDownloadProgressListener(percent -> {
+            if (appUpdateProgressButton != null && percent >= 0 && percent < 100) {
+                appUpdateProgressButton.setEnabled(false);
+                appUpdateProgressButton.setText(getString(R.string.app_update_download_percent, percent));
+                syncAppUpdateInstallLock();
+                return;
+            }
+            restoreAppUpdateCheckButton();
+            refreshSettingsUpdateBadge();
+        });
+    }
+
+    private void restoreAppUpdateCheckButton() {
+        appUpdateInstallHeld = false;
+        if (appUpdateProgressButton != null) {
+            appUpdateProgressButton.setEnabled(TokenManager.getInstance(this).canUseCloudFeatures());
+            appUpdateProgressButton.setText(R.string.app_update_check_download);
+            appUpdateProgressButton.setAlpha(appUpdateProgressButton.isEnabled() ? 1f : 0.45f);
+        }
+        if (appUpdateProgressBar != null) {
+            appUpdateProgressBar.setVisibility(View.GONE);
+        }
+        syncAppUpdateInstallLock();
+    }
+
+    private void syncAppUpdateInstallLock() {
+        if (appUpdateInstallButton == null) return;
+        boolean busy = appUpdateInstallHeld || SoftwareUpdateHelper.isDownloading();
+        boolean canCloud = TokenManager.getInstance(this).canUseCloudFeatures();
+        appUpdateInstallButton.setEnabled(!busy && canCloud);
+        appUpdateInstallButton.setAlpha((!busy && canCloud) ? 1f : 0.45f);
+    }
+
+    private void refreshSettingsUpdateBadge() {
+        if (settingsUpdateBadge == null) {
+            return;
+        }
+        settingsUpdateBadge.setText("1");
+        if (!SoftwareUpdateHelper.hasUnseenUpdate(this)) {
+            stopSettingsUpdateBadgeBlink();
+            settingsUpdateBadge.setVisibility(View.GONE);
+            return;
+        }
+        settingsUpdateBadge.setVisibility(View.VISIBLE);
+        startSettingsUpdateBadgeBlink();
+    }
+
+    private void startSettingsUpdateBadgeBlink() {
+        if (settingsUpdateBadge == null) return;
+        if (settingsUpdateBadgeBlink != null && settingsUpdateBadgeBlink.isRunning()) return;
+        stopSettingsUpdateBadgeBlink();
+        settingsUpdateBadge.setAlpha(1f);
+        settingsUpdateBadgeBlink = ObjectAnimator.ofFloat(settingsUpdateBadge, View.ALPHA, 1f, 0.2f);
+        settingsUpdateBadgeBlink.setDuration(420L);
+        settingsUpdateBadgeBlink.setRepeatMode(ValueAnimator.REVERSE);
+        settingsUpdateBadgeBlink.setRepeatCount(ValueAnimator.INFINITE);
+        settingsUpdateBadgeBlink.start();
+    }
+
+    private void stopSettingsUpdateBadgeBlink() {
+        if (settingsUpdateBadgeBlink != null) {
+            settingsUpdateBadgeBlink.cancel();
+            settingsUpdateBadgeBlink = null;
+        }
+        if (settingsUpdateBadge != null) {
+            settingsUpdateBadge.setAlpha(1f);
+        }
+    }
+
     private void showSettingDialog() {
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_manual_settings, null);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -1607,6 +1689,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         final AlertDialog dialog1 = builder.create();
         openSettingsDialog = dialog1;
         dialog1.setOnDismissListener(d -> {
+            appUpdateProgressButton = null;
+            appUpdateProgressBar = null;
+            appUpdateInstallButton = null;
+            refreshSettingsUpdateBadge();
             if (openSettingsDialog == dialog1) {
                 openSettingsDialog = null;
                 openSettingsSwPrinterTest = null;
@@ -1670,27 +1756,34 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         Button btnInstallUpdate = dialogView.findViewById(R.id.button_install_app_update);
         setCloudControlEnabled(btnCheckUpdate);
         setCloudControlEnabled(btnInstallUpdate);
+        appUpdateInstallButton = btnInstallUpdate;
+        syncAppUpdateInstallLock();
         ProgressBar progressCheckUpdate = dialogView.findViewById(R.id.progress_check_app_update);
         if (btnCheckUpdate != null) {
             final Button btnUpd = btnCheckUpdate;
+            appUpdateProgressButton = btnUpd;
+            appUpdateProgressBar = progressCheckUpdate;
+            int runningPct = SoftwareUpdateHelper.getDownloadProgressPercent();
+            if (runningPct >= 0 && runningPct < 100) {
+                btnUpd.setText(getString(R.string.app_update_download_percent, runningPct));
+            }
             final ProgressBar pbUpd = progressCheckUpdate;
             final TextView tvFileLabel = textAppUpdateFile;
             btnCheckUpdate.setOnClickListener(v -> SoftwareUpdateHelper.checkAndDownloadWithFeedback(
-                    Activity_Camera2_Manual.this, false,
+                    Activity_Camera2_Manual.this, true,
                     () -> {
                         if (pbUpd != null) {
                             pbUpd.setVisibility(View.VISIBLE);
                         }
                         btnUpd.setEnabled(false);
                         btnUpd.setText(R.string.app_update_downloading);
+                        appUpdateInstallHeld = true;
+                        syncAppUpdateInstallLock();
                     },
                     () -> {
-                        if (pbUpd != null) {
-                            pbUpd.setVisibility(View.GONE);
-                        }
-                        btnUpd.setEnabled(true);
-                        btnUpd.setText(R.string.app_update_check_download);
+                        restoreAppUpdateCheckButton();
                         bindAppUpdateFileLabel(tvFileLabel);
+                        refreshSettingsUpdateBadge();
                     }
             ));
         }
@@ -3696,6 +3789,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
     protected void onResume() {
         super.onResume();
         Log.e(TAG, "onResume");
+        bindAppUpdateUiListeners();
+        refreshSettingsUpdateBadge();
         if (!MachineManager.getInstance(this).enforceDurableStorageAccessRequired(this)) {
             Log.w(TAG, "Blocked until All files access is granted");
             return;
@@ -3723,6 +3818,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
     @Override
     protected void onPause() {
         Log.e(TAG, "onPause");
+        SoftwareUpdateHelper.setDownloadProgressListener(null);
+        SoftwareUpdateHelper.setBadgeListener(null);
         if (textureView != null) {
             textureView.removeCallbacks(deferredOpenCameraRunnable);
         }

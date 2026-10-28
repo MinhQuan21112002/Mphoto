@@ -253,12 +253,21 @@ public class ApiService {
      *
      * @return số byte đã ghi xuống file
      */
+    public interface DownloadBytesListener {
+        void onBytes(long downloaded, long total);
+    }
+
     public static long downloadToFile(String fileUrl, java.io.File dest) throws Exception {
+        return downloadToFile(fileUrl, dest, null);
+    }
+
+    public static long downloadToFile(String fileUrl, java.io.File dest, @Nullable DownloadBytesListener progress) throws Exception {
         String u = CdnHelper.rewriteToCdn(fileUrl);
         java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
         c.setRequestMethod("GET");
         c.setInstanceFollowRedirects(true);
         c.setRequestProperty("Accept", "*/*");
+        c.setRequestProperty("Accept-Encoding", "identity");
         c.setConnectTimeout(30000);
         c.setReadTimeout(300000);
         int code = c.getResponseCode();
@@ -275,17 +284,35 @@ public class ApiService {
                 contentLenHint = cl;
             }
         }
+        if (contentLenHint <= 0L) {
+            try {
+                long headerLen = Long.parseLong(String.valueOf(c.getHeaderField("Content-Length")).trim());
+                if (headerLen > 0L) contentLenHint = headerLen;
+            } catch (Exception ignored) {
+            }
+        }
         long written;
         try (java.io.InputStream in = c.getInputStream();
              java.io.FileOutputStream out = new java.io.FileOutputStream(dest)) {
             byte[] buf = new byte[8192];
             int n;
             long total = 0L;
+            long lastProgressAt = 0L;
             while ((n = in.read(buf)) >= 0) {
                 if (n > 0) {
                     out.write(buf, 0, n);
                     total += n;
+                    if (progress != null) {
+                        long now = System.currentTimeMillis();
+                        if (now - lastProgressAt >= 200L) {
+                            lastProgressAt = now;
+                            progress.onBytes(total, contentLenHint);
+                        }
+                    }
                 }
+            }
+            if (progress != null) {
+                progress.onBytes(total, contentLenHint);
             }
             out.flush();
             try {

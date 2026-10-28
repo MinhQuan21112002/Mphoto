@@ -84,6 +84,7 @@
 
     <string name="app_update_check_download">Kiểm tra &amp; tải cập nhật</string>
     <string name="app_update_downloading">Đang tải…</string>
+    <string name="app_update_download_percent">Đang tải %1$d%%</string>
     <string name="app_update_install">Cài APK đã tải</string>
     <string name="app_update_no_file_server">Chưa có bản cập nhật trên máy chủ.</string>
     <string name="app_update_up_to_date">Đã là bản mới nhất (cùng ngày cập nhật trên server).</string>
