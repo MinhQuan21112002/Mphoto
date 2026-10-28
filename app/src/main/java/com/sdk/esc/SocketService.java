@@ -51,6 +51,7 @@ public class SocketService {
     private final AtomicInteger evfEmitGate = new AtomicInteger(0);
     private final AtomicInteger micEmitGate = new AtomicInteger(0);
     private volatile long evfCooldownUntilMs = 0L;
+    private volatile long evfLastAckMs = System.currentTimeMillis();
     private volatile boolean wantConnected = false;
     private volatile boolean pingWaiting = false;
     private long pingSentAt = 0L;
@@ -412,9 +413,9 @@ public class SocketService {
         EvfWebRtcService rtc = EvfWebRtcService.peek();
         boolean rtcActive = rtc != null && rtc.isVideoRtcActive();
         if (rtcActive) {
-            evfStreamer.setStreamProfile(320, 32, 50);
+            evfStreamer.setStreamProfile(360, 36, 40);
         } else {
-            evfStreamer.setStreamProfile(240, 28, 400);
+            evfStreamer.setStreamProfile(320, 32, 70);
         }
     }
 
@@ -496,22 +497,29 @@ public class SocketService {
         if (until > evfCooldownUntilMs) evfCooldownUntilMs = until;
     }
 
+    /** Nhiều nhất 2 JPEG chưa ack — không khóa fps theo RTT như chờ từng khung. */
+    private static final int EVF_SOCKET_MAX_INFLIGHT = 3;
+
     private void emitBinaryOneAtATime(String event, JSONObject payload, byte[] bin, int timeoutMs, AtomicInteger gate) {
         if (!evfWanted || socket == null || !socket.connected() || payload == null || bin == null) return;
-        if (System.currentTimeMillis() < evfCooldownUntilMs) return;
-        if (!gate.compareAndSet(0, 1)) return;
-        final Runnable timeout = () -> {
-            if (gate.compareAndSet(1, 0)) armEvfSocketFallbackCooldown(2000);
-        };
-        mainHandler.postDelayed(timeout, timeoutMs);
-        try {
-            socket.emit(event, payload, bin, (Ack) args -> mainHandler.post(() -> {
-                mainHandler.removeCallbacks(timeout);
+        long now = System.currentTimeMillis();
+        if (now < evfCooldownUntilMs) return;
+        int pending = gate.get();
+        if (pending >= EVF_SOCKET_MAX_INFLIGHT) {
+            if (now - evfLastAckMs > 1200L) {
                 gate.set(0);
-            }));
+                armEvfSocketFallbackCooldown(600);
+            }
+            return;
+        }
+        if (!gate.compareAndSet(pending, pending + 1)) return;
+        try {
+            socket.emit(event, payload, bin, (Ack) args -> {
+                gate.updateAndGet(v -> Math.max(0, v - 1));
+                evfLastAckMs = System.currentTimeMillis();
+            });
         } catch (Exception e) {
-            mainHandler.removeCallbacks(timeout);
-            gate.set(0);
+            gate.updateAndGet(v -> Math.max(0, v - 1));
             Log.w(TAG, event + ": " + e.getMessage());
         }
     }
@@ -525,7 +533,9 @@ public class SocketService {
             payload.put("machineCode", mc.toUpperCase());
             payload.put("encoding", "bin");
             payload.put("ts", System.currentTimeMillis());
-            emitBinaryOneAtATime("evf-mic-audio-update", payload, packet, 400, micEmitGate);
+            if (socket != null && socket.connected()) {
+                socket.emit("evf-mic-audio-update", payload, packet);
+            }
         } catch (Exception e) {
             Log.w(TAG, "emitEvfMicAudioUpdate: " + e.getMessage());
         }

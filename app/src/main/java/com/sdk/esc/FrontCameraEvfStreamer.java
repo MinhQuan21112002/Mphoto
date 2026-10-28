@@ -121,7 +121,7 @@ public final class FrontCameraEvfStreamer {
     public void setStreamProfile(int maxEdge, int jpegQ, long intervalMs) {
         this.targetMaxEdge = Math.max(240, maxEdge);
         this.jpegQuality = Math.max(25, Math.min(80, jpegQ));
-        this.minFrameIntervalMs = Math.max(50L, intervalMs);
+        this.minFrameIntervalMs = Math.max(40L, intervalMs);
     }
 
     public boolean isRunning() {

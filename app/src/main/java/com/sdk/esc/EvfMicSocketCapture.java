@@ -94,7 +94,7 @@ public final class EvfMicSocketCapture {
             int bufSize = Math.max(minBuf, frameBytes * 2);
             try {
                 audioRecord = new AudioRecord(
-                        MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                        MediaRecorder.AudioSource.MIC,
                         SAMPLE_RATE, CHANNEL, ENCODING, bufSize);
                 if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
                     releaseRecordLocked();
