@@ -32,6 +32,8 @@ public class SocketService {
 
     private static SocketService instance;
     private Socket socket;
+    private volatile boolean lastCameraConnected;
+    private String lastBatterySignature = "";
     private android.content.Context appContext;
     private String boundSocketUrl;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -60,6 +62,15 @@ public class SocketService {
         public void run() {
             try {
                 ensureLiveSocket();
+                if (socket != null && socket.connected()) {
+                    JSONObject battery = new JSONObject();
+                    DeviceBatteryStatus.apply(appContext, battery);
+                    String signature = battery.toString();
+                    if (!signature.equals(lastBatterySignature)) {
+                        emitCameraSettingsForControlPage(lastCameraConnected);
+                        lastBatterySignature = signature;
+                    }
+                }
             } catch (Exception e) {
                 Log.w(TAG, "conn watch: " + e.getMessage());
             }
@@ -277,6 +288,15 @@ public class SocketService {
                 h.post(() -> refreshPrinterCacheAndEmitIfChanged(true));
             } else {
                 emitCameraSettingsForControlPage(evfWanted || (evfStreamer != null && evfStreamer.isRunning()));
+            }
+        });
+        socket.on("control-rtt-ping", args -> {
+            if (args == null) return;
+            for (int i = args.length - 1; i >= 0; i--) {
+                if (args[i] instanceof Ack) {
+                    try { ((Ack) args[i]).call(); } catch (Exception ignored) {}
+                    return;
+                }
             }
         });
         socket.on("camera-command", args -> {
@@ -604,6 +624,7 @@ public class SocketService {
     }
 
     public void emitCameraSettingsForControlPage(boolean cameraConnected) {
+        lastCameraConnected = cameraConnected;
         if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
         if (mc == null || mc.isEmpty()) return;
@@ -612,6 +633,7 @@ public class SocketService {
             JSONObject payload = new JSONObject();
             payload.put("machineCode", mc.toUpperCase());
             payload.put("isCameraConnected", cameraConnected);
+            DeviceBatteryStatus.apply(appContext, payload);
             payload.put("appProduct", APP_PRODUCT);
             payload.put("appPlatform", "android");
             payload.put("liveViewSource", "front");
