@@ -16,6 +16,8 @@ import java.lang.ref.WeakReference;
 import java.net.URISyntaxException;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import io.socket.client.Ack;
 import io.socket.client.IO;
@@ -37,6 +39,11 @@ public class SocketService {
     private android.content.Context appContext;
     private String boundSocketUrl;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService stateEmitExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "mono-control-state");
+        t.setDaemon(true);
+        return t;
+    });
 
     private String pendingMachineRoomId;
     private String pendingMachineAppRoomId;
@@ -50,6 +57,22 @@ public class SocketService {
     private WeakReference<ControlPageCommandHost> commandHostRef = new WeakReference<>(null);
     private Runnable evfTeardownRunnable;
     private Runnable evfStopStreamingRunnable;
+    private final Runnable evfAttachRetry = new Runnable() {
+        @Override public void run() {
+            if (evfWanted && (evfStreamer == null || !evfStreamer.isRunning())) {
+                startEvfStreaming();
+            }
+        }
+    };
+    private final Runnable evfWarmupRestart = new Runnable() {
+        @Override public void run() {
+            if (!evfWanted) return;
+            try {
+                if (evfStreamer != null && evfStreamer.isRunning()) evfStreamer.stop();
+            } catch (Exception ignored) { }
+            startEvfStreaming();
+        }
+    };
     private final AtomicInteger evfEmitGate = new AtomicInteger(0);
     private final AtomicInteger micEmitGate = new AtomicInteger(0);
     private volatile long evfCooldownUntilMs = 0L;
@@ -337,6 +360,9 @@ public class SocketService {
         }
         if (evfWanted) {
             startEvfStreaming();
+            // Manual/Settings may finish opening Camera2 after the bridge attaches.
+            mainHandler.removeCallbacks(evfWarmupRestart);
+            mainHandler.postDelayed(evfWarmupRestart, 1400);
         }
         startPrinterStatusPoll();
         notifyControlPageSettingsChanged();
@@ -456,6 +482,8 @@ public class SocketService {
             evfStreamer.setApplySensorOrientation(false);
             evfStreamer.setCoverToLandscape32(false);
             if (tv == null) {
+                mainHandler.removeCallbacks(evfAttachRetry);
+                mainHandler.postDelayed(evfAttachRetry, 450);
                 Log.w(TAG, "EVF: chưa có TextureView — đợi attachControlPageBridge");
                 return;
             }
@@ -463,6 +491,8 @@ public class SocketService {
                 evfStreamer.startFromTextureView(tv);
                 return;
             }
+            mainHandler.removeCallbacks(evfAttachRetry);
+            mainHandler.postDelayed(evfAttachRetry, 450);
             tv.post(() -> {
                 if (!evfWanted) return;
                 TextureView again = previewTextureRef.get();
@@ -480,6 +510,8 @@ public class SocketService {
     }
 
     private void stopEvfStreaming() {
+        mainHandler.removeCallbacks(evfAttachRetry);
+        mainHandler.removeCallbacks(evfWarmupRestart);
         if (evfStreamer != null) {
             evfStreamer.stop();
         }
@@ -624,6 +656,11 @@ public class SocketService {
     }
 
     public void emitCameraSettingsForControlPage(boolean cameraConnected) {
+        // Payload construction reads APK/file/stat state; never do it on the UI thread.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            stateEmitExecutor.execute(() -> emitCameraSettingsForControlPage(cameraConnected));
+            return;
+        }
         lastCameraConnected = cameraConnected;
         if (socket == null || !socket.connected()) return;
         String mc = resolveMachineCode();
@@ -646,6 +683,18 @@ public class SocketService {
             if (windowState == null || windowState.isEmpty()) windowState = "main";
             payload.put("appWindowState", windowState);
             payload.put("monoPostCapturePending", host != null && host.isMonoPostCapturePending());
+            // APK update state consumed by the HTML Control Page (Mono).
+            if (ctx != null) {
+                payload.put("softwareUpdateDownloading", SoftwareUpdateHelper.isDownloading());
+                payload.put("softwareUpdateProgressPercent",
+                        Math.max(0, SoftwareUpdateHelper.getDownloadProgressPercent()));
+                java.io.File updateApk = SoftwareUpdateHelper.getPendingApkFile(ctx);
+                payload.put("softwareUpdateSetupReady", !SoftwareUpdateHelper.isDownloading()
+                        && updateApk != null && updateApk.isFile());
+                payload.put("softwareUpdateFileName",
+                        updateApk != null ? updateApk.getName() : "");
+                payload.put("softwareUpdateLastResult", "");
+            }
 
             MonoPrinterStatusHelper.Snapshot printer = null;
             if (ctx != null) {
@@ -851,6 +900,19 @@ public class SocketService {
                                 mainHandler.post(() -> emitCameraSettingsForControlPage(true));
                             }
                         }, "web-sync-print-stats").start();
+                        return;
+                    }
+                    case "software-update-check": {
+                        Activity updateActivity = host instanceof Activity ? (Activity) host : null;
+                        if (updateActivity == null) return;
+                        SoftwareUpdateHelper.checkAndDownloadWithFeedback(
+                                updateActivity, value != 0, null,
+                                () -> emitCameraSettingsForControlPage(true));
+                        return;
+                    }
+                    case "software-update-install": {
+                        Activity updateActivity = host instanceof Activity ? (Activity) host : null;
+                        if (updateActivity != null) SoftwareUpdateHelper.tryInstallPending(updateActivity);
                         return;
                     }
                     default:

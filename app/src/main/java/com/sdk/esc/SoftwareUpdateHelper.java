@@ -53,6 +53,7 @@ public final class SoftwareUpdateHelper {
     private static volatile DownloadProgressListener progressListener;
     private static volatile Runnable badgeListener;
     private static volatile int downloadPercent = -1;
+    private static volatile long lastControlEmitMs = 0L;
 
     /**
      * Kênh cập nhật: {@code mono} = M-Photo Mono (APK), {@code lite} = M-Photo Lite (APK). Không dùng {@code pro} (file .exe).
@@ -399,7 +400,17 @@ public final class SoftwareUpdateHelper {
     }
 
     private static void reportProgress(int percent) {
+        // Ignore stale callbacks so the visible progress never moves backwards.
+        if (percent >= 0 && downloadPercent >= 0 && percent < downloadPercent) {
+            return;
+        }
         downloadPercent = percent;
+        long now = System.currentTimeMillis();
+        if (percent < 0 || now - lastControlEmitMs >= 450L) {
+            lastControlEmitMs = now;
+            try { SocketService.getInstance().emitCameraSettingsForControlPage(true); }
+            catch (Exception ignored) { }
+        }
         DownloadProgressListener listener = progressListener;
         if (listener != null) {
             MAIN.post(() -> listener.onProgress(percent));
