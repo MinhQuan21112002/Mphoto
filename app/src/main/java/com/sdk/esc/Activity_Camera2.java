@@ -1446,6 +1446,17 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
                 }
                 final String machineIdUpper = machineId.trim().toUpperCase();
                 runOnUiThread(() -> {
+                    try {
+                        Intent serviceIntent = new Intent(Activity_Camera2.this,
+                                MPhotoSocketForegroundService.class);
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent);
+                        } else {
+                            startService(serviceIntent);
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not start Mono socket foreground service", e);
+                    }
                     SocketService socketService = SocketService.getInstance();
                     socketService.attachAppContext(Activity_Camera2.this);
                     socketService.attachControlPageBridge(Activity_Camera2.this, textureView);
