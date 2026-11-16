@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 
 import io.socket.client.Ack;
 import io.socket.client.IO;
+import io.socket.client.Manager;
 import io.socket.client.Socket;
 
 /**
@@ -31,6 +32,7 @@ import io.socket.client.Socket;
 public class SocketService {
     private static final String TAG = "SocketService";
     private static final String APP_PRODUCT = "mono";
+    private static final long SOCKET_REBUILD_AFTER_DISCONNECT_MS = 60_000L;
 
     private static SocketService instance;
     private Socket socket;
@@ -80,6 +82,8 @@ public class SocketService {
     private volatile boolean wantConnected = false;
     private volatile boolean pingWaiting = false;
     private long pingSentAt = 0L;
+    private volatile long disconnectedSinceMs = 0L;
+    private volatile int missedAppPingCount = 0;
     private final Runnable connWatchRunnable = new Runnable() {
         @Override
         public void run() {
@@ -133,7 +137,7 @@ public class SocketService {
         return instance;
     }
 
-    private void ensureSocket() {
+    private synchronized void ensureSocket() {
         String url = ApiConfig.getBaseUrl();
         if (socket != null && url.equals(boundSocketUrl)) {
             return;
@@ -150,11 +154,16 @@ public class SocketService {
             opts.forceNew = true;
             opts.reconnection = true;
             opts.reconnectionAttempts = Integer.MAX_VALUE;
-            opts.reconnectionDelay = 1000;
-            opts.transports = new String[]{"websocket", "polling"};
+            opts.timeout = 15000;
+            opts.reconnectionDelay = 4000;
+            opts.reconnectionDelayMax = 20000;
+            opts.randomizationFactor = 0.25;
+            opts.transports = new String[]{"polling", "websocket"};
+            opts.upgrade = true;
             socket = IO.socket(url, opts);
             boundSocketUrl = url;
             setupListeners();
+            setupSocketManagerListeners(socket.io());
             mainHandler.removeCallbacks(connWatchRunnable);
             mainHandler.postDelayed(connWatchRunnable, 8000);
             Log.d(TAG, "Socket bound to " + url);
@@ -163,8 +172,29 @@ public class SocketService {
         }
     }
 
+    private void setupSocketManagerListeners(Manager manager) {
+        if (manager == null) return;
+        manager.on(Manager.EVENT_RECONNECT_ATTEMPT, args -> {
+            Object attempt = args != null && args.length > 0 ? args[0] : "?";
+            Log.w(TAG, "Socket.IO reconnect attempt=" + attempt);
+        });
+        manager.on(Manager.EVENT_RECONNECT_ERROR, args -> {
+            Object error = args != null && args.length > 0 ? args[0] : "unknown";
+            Log.e(TAG, "Socket.IO reconnect error: " + error);
+        });
+        manager.on(Manager.EVENT_RECONNECT_FAILED, args ->
+                Log.e(TAG, "Socket.IO reconnection attempts exhausted"));
+        manager.on(Manager.EVENT_RECONNECT, args ->
+                Log.i(TAG, "Socket.IO manager reconnected"));
+        manager.on(Manager.EVENT_ERROR, args -> {
+            Object error = args != null && args.length > 0 ? args[0] : "unknown";
+            Log.e(TAG, "Socket.IO manager error: " + error);
+        });
+    }
+
     /** Gọi sau khi đổi Local/Railway (debug). */
-    public void reconnectForApiConfig() {
+    public synchronized void reconnectForApiConfig() {
+        wantConnected = false;
         ensureSocket();
         connect();
     }
@@ -186,23 +216,42 @@ public class SocketService {
             emitJoinUserRoomIfPending();
             startPrinterStatusPoll();
             pingWaiting = false;
+            missedAppPingCount = 0;
+            disconnectedSinceMs = 0L;
             if (evfWanted) {
                 startEvfStreaming();
                 emitCameraSettingsForControlPage(true);
             }
         });
         socket.on(Socket.EVENT_DISCONNECT, args -> {
-            Log.d(TAG, "Socket disconnected");
+            String reason = args != null && args.length > 0
+                    ? String.valueOf(args[0]) : "unknown";
+            Log.w(TAG, "Socket disconnected: " + reason);
             pingWaiting = false;
             evfEmitGate.set(0);
             micEmitGate.set(0);
+            if (wantConnected && disconnectedSinceMs == 0L) {
+                disconnectedSinceMs = System.currentTimeMillis();
+            }
             if (wantConnected) {
-                mainHandler.postDelayed(this::ensureLiveSocket, 1200);
+                if ("io server disconnect".equals(reason)) {
+                    mainHandler.postDelayed(() -> {
+                        synchronized (SocketService.this) {
+                            if (wantConnected && socket != null && !socket.connected()) {
+                                Log.w(TAG, "Server disconnected namespace; reconnecting explicitly");
+                                socket.connect();
+                            }
+                        }
+                    }, 1200);
+                } else {
+                    mainHandler.postDelayed(this::ensureLiveSocket, 1200);
+                }
             }
         });
         socket.on(Socket.EVENT_CONNECT_ERROR, args -> {
             if (args != null && args.length > 0) {
-                Log.e(TAG, "Socket connect error: " + args[0]);
+                Log.e(TAG, "Socket connect error: " + args[0]
+                        + " managerReconnecting=" + socket.io().isReconnecting());
             }
         });
         socket.on("gallery:upload-method-changed", args -> {
@@ -1155,27 +1204,43 @@ public class SocketService {
         }
     }
 
-    private void ensureLiveSocket() {
+    private synchronized void ensureLiveSocket() {
         if (!wantConnected) return;
         if (socket == null) ensureSocket();
         if (socket == null) return;
         if (!socket.connected()) {
             pingWaiting = false;
-            Log.d(TAG, "ensureLive: down, connect()");
+            long now = System.currentTimeMillis();
+            if (disconnectedSinceMs == 0L) disconnectedSinceMs = now;
+            if (now - disconnectedSinceMs >= SOCKET_REBUILD_AFTER_DISCONNECT_MS) {
+                Log.w(TAG, "ensureLive: disconnected for 60s, rebuilding stale socket");
+                rebuildSocket();
+                return;
+            }
+            if (socket.io() != null && socket.io().isReconnecting()) {
+                Log.d(TAG, "ensureLive: Socket.IO retry is active");
+                return;
+            }
+            Log.w(TAG, "ensureLive: disconnected and manager idle; restarting connect()");
             try {
                 socket.connect();
             } catch (Exception e) {
-                rebuildSocket();
+                Log.w(TAG, "ensureLive connect: " + e.getMessage());
             }
             return;
         }
-        if (pingWaiting && System.currentTimeMillis() - pingSentAt > 12000L) {
-            Log.w(TAG, "ensureLive: no pong, rebuild socket");
+        if (pingWaiting && System.currentTimeMillis() - pingSentAt > 15000L) {
+            missedAppPingCount++;
+            Log.w(TAG, "ensureLive: no pong (" + missedAppPingCount + "/3)");
             pingWaiting = false;
-            evfEmitGate.set(0);
-            micEmitGate.set(0);
-            rebuildSocket();
-            return;
+            if (missedAppPingCount >= 3) {
+                Log.w(TAG, "ensureLive: 3 missed pongs, rebuilding socket");
+                missedAppPingCount = 0;
+                evfEmitGate.set(0);
+                micEmitGate.set(0);
+                rebuildSocket();
+                return;
+            }
         }
         if (!pingWaiting) {
             pingWaiting = true;
@@ -1183,7 +1248,10 @@ public class SocketService {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("t", pingSentAt);
-                socket.emit("app-socket-ping", payload, (Ack) args -> pingWaiting = false);
+                socket.emit("app-socket-ping", payload, (Ack) args -> {
+                    pingWaiting = false;
+                    missedAppPingCount = 0;
+                });
             } catch (Exception e) {
                 pingWaiting = false;
                 Log.w(TAG, "ensureLive ping: " + e.getMessage());
@@ -1191,7 +1259,8 @@ public class SocketService {
         }
     }
 
-    private void rebuildSocket() {
+    private synchronized void rebuildSocket() {
+        if (!wantConnected) return;
         Log.w(TAG, "rebuild socket");
         try {
             if (socket != null) {
@@ -1203,6 +1272,8 @@ public class SocketService {
         socket = null;
         boundSocketUrl = null;
         pingWaiting = false;
+        missedAppPingCount = 0;
+        disconnectedSinceMs = System.currentTimeMillis();
         ensureSocket();
         if (socket != null) {
             try {
@@ -1213,11 +1284,16 @@ public class SocketService {
         }
     }
 
-    public void connect() {
+    public synchronized void connect() {
         wantConnected = true;
         ensureSocket();
         if (socket != null && !socket.connected()) {
-            socket.connect();
+            if (socket.io() == null || !socket.io().isReconnecting()) {
+                Log.d(TAG, "Socket.IO manager idle; calling connect()");
+                socket.connect();
+            } else {
+                Log.d(TAG, "Socket.IO reconnection is active; leaving it to the client");
+            }
         }
     }
 
@@ -1225,13 +1301,13 @@ public class SocketService {
         return socket != null && socket.connected();
     }
 
-    public void disconnect() {
+    public synchronized void disconnect() {
         try {
             wantConnected = false;
             evfWanted = false;
             stopPrinterStatusPoll();
             stopEvfStreaming();
-            if (socket != null && socket.connected()) {
+            if (socket != null) {
                 socket.disconnect();
             }
         } catch (Exception e) {
@@ -1251,7 +1327,7 @@ public class SocketService {
                 Log.e(TAG, "joinMachineRoom error", e);
             }
         } else if (socket != null) {
-            socket.connect();
+            Log.d(TAG, "Machine room queued until socket connects: " + pendingMachineRoomId);
         }
     }
 
@@ -1265,7 +1341,7 @@ public class SocketService {
         if (socket != null && socket.connected()) {
             emitJoinMachineAppRoomIfPending();
         } else if (socket != null) {
-            socket.connect();
+            Log.d(TAG, "Machine-app room queued until socket connects: " + pendingMachineAppRoomId);
         }
     }
 

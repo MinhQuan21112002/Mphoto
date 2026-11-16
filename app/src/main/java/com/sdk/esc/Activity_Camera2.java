@@ -1460,6 +1460,13 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
                     SocketService socketService = SocketService.getInstance();
                     socketService.attachAppContext(Activity_Camera2.this);
                     socketService.attachControlPageBridge(Activity_Camera2.this, textureView);
+                    // Queue every room before connecting so the first slow connect also joins it.
+                    socketService.joinMachineRoom(machineIdUpper);
+                    socketService.joinMachineAppRoom(machineIdUpper, "android", "mono");
+                    String socketUserToken = TokenManager.getInstance(Activity_Camera2.this).getToken();
+                    if (socketUserToken != null && !socketUserToken.isEmpty()) {
+                        socketService.joinUserRoom(socketUserToken);
+                    }
                     socketService.connect();
                     final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
                     final Runnable tryJoin = new Runnable() {
@@ -1469,18 +1476,14 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
                         public void run() {
                             attempts++;
                             if (socketService.isConnected()) {
-                                socketService.joinMachineRoom(machineIdUpper);
-                                socketService.joinMachineAppRoom(machineIdUpper, "android", "mono");
-                                String token = TokenManager.getInstance(Activity_Camera2.this).getToken();
-                                if (token != null && !token.isEmpty()) {
-                                    socketService.joinUserRoom(token);
-                                }
                                 socketService.emitCameraSettingsForControlPage(true);
-                                Log.d(TAG, "Joined machine-app room (mono): " + machineIdUpper);
+                                Log.d(TAG, "Socket connected; queued Mono machine rooms are joined: " + machineIdUpper);
                                 return;
                             }
                             if (attempts < 15) {
                                 mainHandler.postDelayed(this, 300);
+                            } else {
+                                Log.w(TAG, "Mono socket UI sync pending; queued rooms will join on connect");
                             }
                         }
                     };
