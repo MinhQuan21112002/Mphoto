@@ -105,6 +105,7 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
     private final Runnable deferredOpenCameraRunnable = this::openCameraIfReady;
     // preview camera
     private TextureView textureView;
+    private boolean socketHealthyBeforePause;
     private ImageView imgFrame;
     private  int ISOvalue=400;
     private  long ExpoValue= 30000000;
@@ -1446,53 +1447,64 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
                 }
                 final String machineIdUpper = machineId.trim().toUpperCase();
                 runOnUiThread(() -> {
-                    try {
-                        Intent serviceIntent = new Intent(Activity_Camera2.this,
-                                MPhotoSocketForegroundService.class);
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(serviceIntent);
-                        } else {
-                            startService(serviceIntent);
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "Could not start Mono socket foreground service", e);
-                    }
-                    SocketService socketService = SocketService.getInstance();
-                    socketService.attachAppContext(Activity_Camera2.this);
-                    socketService.attachControlPageBridge(Activity_Camera2.this, textureView);
-                    // Queue every room before connecting so the first slow connect also joins it.
-                    socketService.joinMachineRoom(machineIdUpper);
-                    socketService.joinMachineAppRoom(machineIdUpper, "android", "mono");
-                    String socketUserToken = TokenManager.getInstance(Activity_Camera2.this).getToken();
-                    if (socketUserToken != null && !socketUserToken.isEmpty()) {
-                        socketService.joinUserRoom(socketUserToken);
-                    }
-                    socketService.connect();
-                    final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
-                    final Runnable tryJoin = new Runnable() {
-                        int attempts = 0;
-
-                        @Override
-                        public void run() {
-                            attempts++;
-                            if (socketService.isConnected()) {
-                                socketService.emitCameraSettingsForControlPage(true);
-                                Log.d(TAG, "Socket connected; queued Mono machine rooms are joined: " + machineIdUpper);
-                                return;
-                            }
-                            if (attempts < 15) {
-                                mainHandler.postDelayed(this, 300);
-                            } else {
-                                Log.w(TAG, "Mono socket UI sync pending; queued rooms will join on connect");
-                            }
-                        }
-                    };
-                    mainHandler.post(tryJoin);
+                    activateMonoSocketPresence(machineIdUpper, token, false);
                 });
             } catch (Exception e) {
                 Log.e(TAG, "connectMachinePresenceForDeviceManager error", e);
             }
         }).start();
+    }
+
+    /** Start/refresh the Mono socket service and queue its rooms before each connect attempt. */
+    private void activateMonoSocketPresence(String machineId, String token, boolean forceReconnect) {
+        if (machineId == null || machineId.trim().isEmpty()) return;
+        String machineIdUpper = machineId.trim().toUpperCase();
+        try {
+            Intent serviceIntent = new Intent(this, MPhotoSocketForegroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not start Mono socket foreground service", e);
+        }
+
+        SocketService socketService = SocketService.getInstance();
+        socketService.attachAppContext(getApplicationContext());
+        socketService.attachControlPageBridge(this, textureView);
+        socketService.joinMachineRoom(machineIdUpper);
+        socketService.joinMachineAppRoom(machineIdUpper, "android", "mono");
+        if (token != null && !token.trim().isEmpty()) {
+            socketService.joinUserRoom(token);
+        }
+        if (forceReconnect) {
+            Log.w(TAG, "Socket was healthy before Activity pause; forcing Mono reconnect on resume");
+            socketService.reconnectNow();
+        } else {
+            socketService.ensureConnected();
+        }
+
+        Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
+        Runnable trySync = new Runnable() {
+            int attempts = 0;
+
+            @Override
+            public void run() {
+                attempts++;
+                if (socketService.isConnected()) {
+                    socketService.emitCameraSettingsForControlPage(true);
+                    Log.d(TAG, "Mono socket healthy; machine rooms queued: " + machineIdUpper);
+                    return;
+                }
+                if (attempts < 15) {
+                    mainHandler.postDelayed(this, 300);
+                } else {
+                    Log.w(TAG, "Mono socket recovery is still pending; queued rooms will join on connect");
+                }
+            }
+        };
+        mainHandler.post(trySync);
     }
 
     @Override
@@ -1508,8 +1520,19 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
         mm.reloadDurableStorageAfterPermission();
         // Sau khi user cấp All files access: đăng ký máy (lần đầu có thể bị defer)
         TokenManager tm = TokenManager.getInstance(this);
-        if (tm.canUseCloudFeatures() && (mm.getMachineCode() == null || mm.getMachineCode().isEmpty())) {
-            connectMachinePresenceForDeviceManager(tm.getToken());
+        if (tm.canUseCloudFeatures()) {
+            String machineCode = mm.getMachineCode();
+            if (machineCode == null || machineCode.isEmpty()) {
+                connectMachinePresenceForDeviceManager(tm.getToken());
+                socketHealthyBeforePause = false;
+            } else {
+                SocketService socketService = SocketService.getInstance();
+                boolean forceReconnect = socketHealthyBeforePause && !socketService.isConnected();
+                socketHealthyBeforePause = false;
+                activateMonoSocketPresence(machineCode, tm.getToken(), forceReconnect);
+            }
+        } else {
+            socketHealthyBeforePause = false;
         }
         reloadIsoExposureFromPrefs();
         final boolean softSwitch = MonoScreenSwitch.consumeSoftResume();
@@ -1534,6 +1557,7 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
     @Override
     protected void onPause() {
         Log.e(TAG, "onPause");
+        socketHealthyBeforePause = SocketService.getInstance().isConnected();
         stopClickButtonBlink();
         if (textureView != null) {
             textureView.removeCallbacks(deferredOpenCameraRunnable);

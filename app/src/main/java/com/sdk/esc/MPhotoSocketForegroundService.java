@@ -33,6 +33,23 @@ public final class MPhotoSocketForegroundService extends Service {
         startForeground(NOTIFICATION_ID, notification);
         SocketService socket = SocketService.getInstance();
         socket.attachAppContext(this);
+        // START_STICKY can recreate this service in a fresh process. Restore the
+        // machine rooms from durable app state before connecting so the server
+        // can see Mono again and deliver Control Page commands.
+        TokenManager tokenManager = TokenManager.getInstance(this);
+        if (tokenManager.canUseCloudFeatures()) {
+            String machineCode = MachineManager.getInstance(this).getMachineCode();
+            if (machineCode != null && !machineCode.trim().isEmpty()) {
+                String machineId = machineCode.trim().toUpperCase();
+                socket.joinMachineRoom(machineId);
+                socket.joinMachineAppRoom(machineId, "android", "mono");
+                String token = tokenManager.getToken();
+                if (token != null && !token.trim().isEmpty()) {
+                    socket.joinUserRoom(token);
+                }
+                android.util.Log.i("MonoSocketService", "Restored socket rooms for " + machineId);
+            }
+        }
         socket.connect();
     }
 

@@ -35,7 +35,7 @@ public class SocketService {
     private static final long SOCKET_REBUILD_AFTER_DISCONNECT_MS = 60_000L;
 
     private static SocketService instance;
-    private Socket socket;
+    private volatile Socket socket;
     private volatile boolean lastCameraConnected;
     private String lastBatterySignature = "";
     private android.content.Context appContext;
@@ -82,6 +82,9 @@ public class SocketService {
     private volatile boolean wantConnected = false;
     private volatile boolean pingWaiting = false;
     private long pingSentAt = 0L;
+    /** Thời điểm gần nhất server xác nhận socket bằng app-socket-ping. */
+    private volatile long lastAppPingAckAtMs = 0L;
+    private static final long SOCKET_HEALTH_STALE_MS = 30_000L;
     private volatile long disconnectedSinceMs = 0L;
     private volatile int missedAppPingCount = 0;
     private final Runnable connWatchRunnable = new Runnable() {
@@ -161,6 +164,7 @@ public class SocketService {
             opts.transports = new String[]{"polling", "websocket"};
             opts.upgrade = true;
             socket = IO.socket(url, opts);
+            lastAppPingAckAtMs = 0L;
             boundSocketUrl = url;
             setupListeners();
             setupSocketManagerListeners(socket.io());
@@ -217,6 +221,7 @@ public class SocketService {
             startPrinterStatusPoll();
             pingWaiting = false;
             missedAppPingCount = 0;
+            lastAppPingAckAtMs = System.currentTimeMillis();
             disconnectedSinceMs = 0L;
             if (evfWanted) {
                 startEvfStreaming();
@@ -228,6 +233,7 @@ public class SocketService {
                     ? String.valueOf(args[0]) : "unknown";
             Log.w(TAG, "Socket disconnected: " + reason);
             pingWaiting = false;
+            lastAppPingAckAtMs = 0L;
             evfEmitGate.set(0);
             micEmitGate.set(0);
             if (wantConnected && disconnectedSinceMs == 0L) {
@@ -1246,9 +1252,12 @@ public class SocketService {
             pingWaiting = true;
             pingSentAt = System.currentTimeMillis();
             try {
+                final Socket pingSocket = socket;
                 JSONObject payload = new JSONObject();
                 payload.put("t", pingSentAt);
-                socket.emit("app-socket-ping", payload, (Ack) args -> {
+                pingSocket.emit("app-socket-ping", payload, (Ack) args -> {
+                    if (socket != pingSocket) return;
+                    lastAppPingAckAtMs = System.currentTimeMillis();
                     pingWaiting = false;
                     missedAppPingCount = 0;
                 });
@@ -1273,6 +1282,7 @@ public class SocketService {
         boundSocketUrl = null;
         pingWaiting = false;
         missedAppPingCount = 0;
+        lastAppPingAckAtMs = 0L;
         disconnectedSinceMs = System.currentTimeMillis();
         ensureSocket();
         if (socket != null) {
@@ -1297,8 +1307,32 @@ public class SocketService {
         }
     }
 
+    /** Reuse the watchdog's retry logic when an Activity or service returns to foreground. */
+    public synchronized void ensureConnected() {
+        wantConnected = true;
+        ensureSocket();
+        ensureLiveSocket();
+    }
+
+    /** Explicit user retry: discard a possibly half-open transport and reconnect. */
+    public synchronized void reconnectNow() {
+        wantConnected = true;
+        ensureSocket();
+        if (socket == null) {
+            Log.e(TAG, "Cannot reconnect: socket is null");
+            return;
+        }
+        Log.w(TAG, "Explicit reconnect requested; resetting socket (connected=" + socket.connected() + ")");
+        rebuildSocket();
+    }
+
     public boolean isConnected() {
-        return socket != null && socket.connected();
+        Socket currentSocket = socket;
+        boolean transportConnected = currentSocket != null && currentSocket.connected();
+        long ackAt = lastAppPingAckAtMs;
+        long ackAgeMs = ackAt > 0L
+                ? Math.max(0L, System.currentTimeMillis() - ackAt) : Long.MAX_VALUE;
+        return transportConnected && ackAgeMs <= SOCKET_HEALTH_STALE_MS;
     }
 
     public synchronized void disconnect() {
