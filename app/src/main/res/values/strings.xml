@@ -21,9 +21,11 @@
     <string name="vietnamese">Tiếng Việt</string>
     <string name="english">Tiếng Anh</string>
     <string name="korean">Tiếng Hàn</string>
+    <string name="chinese">Tiếng Trung (Giản thể)</string>
     <string name="DownloadImage">In mã QR</string>
 
     <string name="login_screen_title">M-PHOTO MONO</string>
+    <string name="login_welcome_title">Chào mừng trở lại</string>
     <string name="login_email_label">Email</string>
     <string name="login_email_hint">Nhập email</string>
     <string name="login_password_label">Mật khẩu</string>
@@ -38,6 +40,8 @@
     <string name="login_guest_button">Dùng không cần đăng nhập</string>
     <string name="login_language">Ngôn ngữ</string>
     <string name="login_select_language_title">Chọn ngôn ngữ</string>
+    <string name="login_theme_light">Chế độ sáng</string>
+    <string name="login_theme_dark">Chế độ tối</string>
     <string name="login_guest_mode_hint">Chế độ khách: chỉ chụp và in trên máy. Đăng nhập để đồng bộ server.</string>
     <string name="guest_feature_need_login">Chức năng này cần đăng nhập</string>
     <string name="logout">Đăng xuất</string>

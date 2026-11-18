@@ -21,6 +21,7 @@
     <string name="vietnamese">베트남어</string>
     <string name="english">영어</string>
     <string name="korean">한국어</string>
+    <string name="chinese">중국어(간체)</string>
     <string name="DownloadImage">QR 코드 인쇄</string>
     <string name="print_bitmap_mode">비트맵 인쇄 모드</string>
     <string name="print_mode_threshold">0 — 임계값 (Threshold)</string>
@@ -28,6 +29,7 @@
     <string name="print_mode_bayer">2 — Bayer (매트릭스)</string>
 
     <string name="login_screen_title">M-PHOTO MONO</string>
+    <string name="login_welcome_title">다시 오신 것을 환영합니다</string>
     <string name="login_email_label">이메일</string>
     <string name="login_email_hint">이메일 입력</string>
     <string name="login_password_label">비밀번호</string>
@@ -36,6 +38,8 @@
     <string name="login_guest_button">로그인 없이 사용</string>
     <string name="login_language">언어</string>
     <string name="login_select_language_title">언어 선택</string>
+    <string name="login_theme_light">라이트 모드</string>
+    <string name="login_theme_dark">다크 모드</string>
     <string name="login_please_enter_email">이메일을 입력하세요</string>
     <string name="login_please_enter_password">비밀번호를 입력하세요</string>
     <string name="login_successful">로그인 성공</string>

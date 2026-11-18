@@ -12,10 +12,11 @@
         android:layout_marginBottom="20dp">
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
+            android:layout_toStartOf="@id/btnCloseLanguage"
             android:fontFamily="sans-serif-medium"
             android:text="@string/login_select_language_title"
             android:textColor="@color/mp_brand_text"
@@ -26,15 +27,13 @@
             android:id="@+id/btnCloseLanguage"
             style="@style/MonoPinkButton"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="40dp"
             android:layout_alignParentEnd="true"
-            android:fontFamily="sans-serif-medium"
             android:minWidth="0dp"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             android:text="@string/close"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:textSize="13sp" />
     </RelativeLayout>
 
     <LinearLayout
@@ -42,7 +41,7 @@
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:layout_marginBottom="10dp"
-        android:background="@drawable/mono_btn_primary"
+        android:background="@drawable/mono_btn_secondary"
         android:clickable="true"
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
@@ -51,27 +50,21 @@
         android:paddingStart="28dp"
         android:paddingEnd="16dp">
 
-        <FrameLayout
-            android:layout_width="36dp"
-            android:layout_height="match_parent">
-
-            <ImageView
-                android:layout_width="32dp"
-                android:layout_height="22dp"
-                android:layout_gravity="center"
-                android:contentDescription="@null"
-                android:scaleType="fitCenter"
-                android:src="@drawable/flag_vietnam" />
-        </FrameLayout>
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="22dp"
+            android:contentDescription="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/flag_vietnam" />
 
         <TextView
             android:id="@+id/textLanguageVi"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="16dp"
             android:fontFamily="sans-serif-medium"
-            android:text="Tiếng Việt"
-            android:textColor="#FFFFFF"
+            android:text="@string/vietnamese"
+            android:textColor="@color/mp_brand_text"
             android:textSize="16sp"
             android:textStyle="bold" />
     </LinearLayout>
@@ -81,7 +74,7 @@
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:layout_marginBottom="10dp"
-        android:background="@drawable/mono_btn_primary"
+        android:background="@drawable/mono_btn_secondary"
         android:clickable="true"
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
@@ -90,18 +83,12 @@
         android:paddingStart="28dp"
         android:paddingEnd="16dp">
 
-        <FrameLayout
+        <ImageView
             android:layout_width="36dp"
-            android:layout_height="match_parent">
-
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="25dp"
-                android:layout_gravity="center"
-                android:contentDescription="@null"
-                android:scaleType="fitCenter"
-                android:src="@drawable/flag_korea" />
-        </FrameLayout>
+            android:layout_height="25dp"
+            android:contentDescription="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/flag_korea" />
 
         <TextView
             android:id="@+id/textLanguageKo"
@@ -109,8 +96,8 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:fontFamily="sans-serif-medium"
-            android:text="한국어"
-            android:textColor="#FFFFFF"
+            android:text="@string/korean"
+            android:textColor="@color/mp_brand_text"
             android:textSize="16sp"
             android:textStyle="bold" />
     </LinearLayout>
@@ -119,7 +106,8 @@
         android:id="@+id/btnLanguageEn"
         android:layout_width="match_parent"
         android:layout_height="56dp"
-        android:background="@drawable/mono_btn_primary"
+        android:layout_marginBottom="10dp"
+        android:background="@drawable/mono_btn_secondary"
         android:clickable="true"
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
@@ -128,27 +116,53 @@
         android:paddingStart="28dp"
         android:paddingEnd="16dp">
 
-        <FrameLayout
-            android:layout_width="36dp"
-            android:layout_height="match_parent">
-
-            <ImageView
-                android:layout_width="32dp"
-                android:layout_height="22dp"
-                android:layout_gravity="center"
-                android:contentDescription="@null"
-                android:scaleType="fitCenter"
-                android:src="@drawable/flag_english" />
-        </FrameLayout>
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="22dp"
+            android:contentDescription="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/flag_english" />
 
         <TextView
             android:id="@+id/textLanguageEn"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="16dp"
             android:fontFamily="sans-serif-medium"
-            android:text="English"
-            android:textColor="#FFFFFF"
+            android:text="@string/english"
+            android:textColor="@color/mp_brand_text"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/btnLanguageZh"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@drawable/mono_btn_secondary"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical|start"
+        android:orientation="horizontal"
+        android:paddingStart="28dp"
+        android:paddingEnd="16dp">
+
+        <ImageView
+            android:layout_width="32dp"
+            android:layout_height="22dp"
+            android:contentDescription="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/flag_china" />
+
+        <TextView
+            android:id="@+id/textLanguageZh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:fontFamily="sans-serif-medium"
+            android:text="@string/chinese"
+            android:textColor="@color/mp_brand_text"
             android:textSize="16sp"
             android:textStyle="bold" />
     </LinearLayout>

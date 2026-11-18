@@ -9,12 +9,13 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import java.util.Locale;
 import org.json.JSONObject;
 
@@ -26,9 +27,13 @@ public class LoginActivity extends AppCompatActivity {
     private TextView errorText;
     private ProgressBar progressBar;
     private TokenManager tokenManager;
+    private ImageView loginLanguageFlag;
+    private ImageView loginThemeIcon;
+    private TextView loginThemeText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        MonoThemeManager.applySavedTheme(this);
         applyLocaleFromPrefs();
         super.onCreate(savedInstanceState);
 
@@ -46,10 +51,15 @@ public class LoginActivity extends AppCompatActivity {
         passwordEditText = findViewById(R.id.passwordEditText);
         loginButton = findViewById(R.id.loginButton);
         Button guestButton = findViewById(R.id.guestButton);
-        ImageButton languageButton = findViewById(R.id.languageButton);
+        View languageButton = findViewById(R.id.loginLanguageButton);
+        View themeButton = findViewById(R.id.loginThemeButton);
+        loginLanguageFlag = findViewById(R.id.loginLanguageFlag);
+        loginThemeIcon = findViewById(R.id.loginThemeIcon);
+        loginThemeText = findViewById(R.id.loginThemeText);
         errorText = findViewById(R.id.errorText);
         progressBar = findViewById(R.id.progressBar);
 
+        updateLoginPreferences();
         loginButton.setOnClickListener(v -> performLogin());
         if (guestButton != null) {
             guestButton.setOnClickListener(v -> enterGuestMode());
@@ -57,7 +67,39 @@ public class LoginActivity extends AppCompatActivity {
         if (languageButton != null) {
             languageButton.setOnClickListener(v -> showLanguagePicker());
         }
+        if (themeButton != null) {
+            themeButton.setOnClickListener(v -> {
+                MonoThemeManager.setDark(this, !MonoThemeManager.isDark(this));
+            });
+        }
         setupApiServerButton();
+    }
+
+    private void updateLoginPreferences() {
+        String language = getSharedPreferences("settings", MODE_PRIVATE)
+                .getString("language", "vi");
+        if (loginLanguageFlag != null) {
+            int flagResource;
+            switch (language) {
+                case "en": flagResource = R.drawable.flag_english; break;
+                case "ko": flagResource = R.drawable.flag_korea; break;
+                case "zh": flagResource = R.drawable.flag_china; break;
+                case "vi":
+                default: flagResource = R.drawable.flag_vietnam; break;
+            }
+            loginLanguageFlag.setImageResource(flagResource);
+        }
+
+        if (loginThemeText != null && loginThemeIcon != null) {
+            boolean darkMode = MonoThemeManager.isDark(this);
+            loginThemeText.setText(getString(darkMode
+                    ? R.string.login_theme_light
+                    : R.string.login_theme_dark));
+            loginThemeIcon.setImageResource(darkMode
+                    ? R.drawable.mono_ic_sun
+                    : R.drawable.mono_ic_moon);
+            loginThemeIcon.setColorFilter(ContextCompat.getColor(this, R.color.mp_brand_text_muted));
+        }
     }
 
     private void setupApiServerButton() {
@@ -123,7 +165,7 @@ public class LoginActivity extends AppCompatActivity {
     private void applyLocaleFromPrefs() {
         SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
         String lang = prefs.getString("language", "vi");
-        Locale locale = new Locale(lang);
+        Locale locale = "zh".equals(lang) ? Locale.SIMPLIFIED_CHINESE : new Locale(lang);
         Locale.setDefault(locale);
         Configuration config = new Configuration();
         config.setLocale(locale);
@@ -135,6 +177,13 @@ public class LoginActivity extends AppCompatActivity {
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(root)
                 .create();
+        String currentLanguage = getSharedPreferences("settings", MODE_PRIVATE)
+                .getString("language", "vi");
+        styleLanguageOption(root, R.id.btnLanguageVi, R.id.textLanguageVi, "vi".equals(currentLanguage));
+        styleLanguageOption(root, R.id.btnLanguageEn, R.id.textLanguageEn, "en".equals(currentLanguage));
+        styleLanguageOption(root, R.id.btnLanguageKo, R.id.textLanguageKo, "ko".equals(currentLanguage));
+        styleLanguageOption(root, R.id.btnLanguageZh, R.id.textLanguageZh, "zh".equals(currentLanguage));
+
         View.OnClickListener pick = v -> {
             String code;
             int id = v.getId();
@@ -142,6 +191,8 @@ public class LoginActivity extends AppCompatActivity {
                 code = "en";
             } else if (id == R.id.btnLanguageKo) {
                 code = "ko";
+            } else if (id == R.id.btnLanguageZh) {
+                code = "zh";
             } else {
                 code = "vi";
             }
@@ -155,9 +206,22 @@ public class LoginActivity extends AppCompatActivity {
         root.findViewById(R.id.btnLanguageVi).setOnClickListener(pick);
         root.findViewById(R.id.btnLanguageEn).setOnClickListener(pick);
         root.findViewById(R.id.btnLanguageKo).setOnClickListener(pick);
+        root.findViewById(R.id.btnLanguageZh).setOnClickListener(pick);
         root.findViewById(R.id.btnCloseLanguage).setOnClickListener(v -> dialog.dismiss());
         dialog.show();
         GlassDialogHelper.applyGlassWindow(dialog);
+    }
+
+    private void styleLanguageOption(View root, int buttonId, int labelId, boolean selected) {
+        View button = root.findViewById(buttonId);
+        TextView label = root.findViewById(labelId);
+        if (button != null) {
+            button.setBackgroundResource(selected ? R.drawable.mono_login_button : R.drawable.mono_btn_secondary);
+        }
+        if (label != null) {
+            label.setTextColor(ContextCompat.getColor(this,
+                    selected ? android.R.color.white : R.color.mp_brand_text));
+        }
     }
 
     private void enterGuestMode() {

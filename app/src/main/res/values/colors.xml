@@ -9,6 +9,8 @@
     <color name="mp_brand_screen">#FFF5F7</color>
     <color name="mp_brand_text">#8E4D61</color>
     <color name="mp_brand_text_muted">#A86B7A</color>
+    <color name="mp_brand_surface">#FFFDFBFC</color>
+    <color name="mp_brand_outline">#FFEADFE3</color>
 
     <color name="colorPrimary">#D45D7F</color>
     <color name="colorPrimaryDark">#C04A6D</color>

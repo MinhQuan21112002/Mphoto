@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="mp_brand_pink">#FF80506A</color>
+    <color name="mp_brand_primary">#FF5A263A</color>
+    <color name="mp_brand_pressed">#FF45202F</color>
+    <color name="mp_brand_soft">#FF292226</color>
+    <color name="mp_brand_light">#FF3B2630</color>
+    <color name="mp_brand_screen">#FF171416</color>
+    <color name="mp_brand_text">#FFF4EDEF</color>
+    <color name="mp_brand_text_muted">#FFD2C1C9</color>
+    <color name="mp_brand_surface">#FF1F1A1D</color>
+    <color name="mp_brand_outline">#FF4A3B43</color>
+
+    <color name="colorPrimary">#FF5A263A</color>
+    <color name="colorPrimaryDark">#FF171416</color>
+    <color name="colorAccent">#FFFFA9C2</color>
+    <color name="black">#FF000000</color>
+    <color name="hover_color">#FF3B2630</color>
+    <color name="normal_color">#FF1F1A1D</color>
+    <color name="btn_setting_pressed_color">#FF3B2630</color>
+</resources>

@@ -71,7 +71,8 @@
         <activity
             android:name="com.sdk.esc.LoginActivity"
             android:exported="true"
-            android:label="@string/app_title">
+            android:label="@string/app_title"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

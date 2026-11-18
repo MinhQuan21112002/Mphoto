@@ -483,6 +483,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setView(root)
                 .create();
+        String currentLanguage = getSharedPreferences("settings", MODE_PRIVATE)
+                .getString("language", "vi");
+        styleLanguageOption(root, R.id.btnLanguageVi, R.id.textLanguageVi, "vi".equals(currentLanguage));
+        styleLanguageOption(root, R.id.btnLanguageEn, R.id.textLanguageEn, "en".equals(currentLanguage));
+        styleLanguageOption(root, R.id.btnLanguageKo, R.id.textLanguageKo, "ko".equals(currentLanguage));
+        styleLanguageOption(root, R.id.btnLanguageZh, R.id.textLanguageZh, "zh".equals(currentLanguage));
         View.OnClickListener pick = v -> {
             String code;
             int id = v.getId();
@@ -490,6 +496,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                 code = "en";
             } else if (id == R.id.btnLanguageKo) {
                 code = "ko";
+            } else if (id == R.id.btnLanguageZh) {
+                code = "zh";
             } else {
                 code = "vi";
             }
@@ -499,9 +507,22 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         root.findViewById(R.id.btnLanguageVi).setOnClickListener(pick);
         root.findViewById(R.id.btnLanguageEn).setOnClickListener(pick);
         root.findViewById(R.id.btnLanguageKo).setOnClickListener(pick);
+        root.findViewById(R.id.btnLanguageZh).setOnClickListener(pick);
         root.findViewById(R.id.btnCloseLanguage).setOnClickListener(v -> dialog.dismiss());
         dialog.show();
         GlassDialogHelper.applyGlassWindow(dialog);
+    }
+
+    private void styleLanguageOption(View root, int buttonId, int labelId, boolean selected) {
+        View button = root.findViewById(buttonId);
+        TextView label = root.findViewById(labelId);
+        if (button != null) {
+            button.setBackgroundResource(selected ? R.drawable.mono_login_button : R.drawable.mono_btn_secondary);
+        }
+        if (label != null) {
+            label.setTextColor(androidx.core.content.ContextCompat.getColor(this,
+                    selected ? android.R.color.white : R.color.mp_brand_text));
+        }
     }
 
     public void changeLanguage(String langCode) {
@@ -510,7 +531,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         prefs.edit().putString("language", langCode).apply();
 
         // Thay đổi Locale
-        Locale locale = new Locale(langCode);
+        Locale locale = "zh".equals(langCode) ? Locale.SIMPLIFIED_CHINESE : new Locale(langCode);
         Locale.setDefault(locale);
         Configuration config = new Configuration();
         config.setLocale(locale);
@@ -522,7 +543,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         startActivity(intent);
     }
     private void changeLanguageFirst(String langCode) {
-        Locale locale = new Locale(langCode);
+        Locale locale = "zh".equals(langCode) ? Locale.SIMPLIFIED_CHINESE : new Locale(langCode);
         Locale.setDefault(locale);
 
         Configuration config = new Configuration();

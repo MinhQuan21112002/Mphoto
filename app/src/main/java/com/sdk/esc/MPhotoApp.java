@@ -9,6 +9,7 @@ public class MPhotoApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        MonoThemeManager.applySavedTheme(this);
         // Mỗi lần mở lại app: hiện lại nút chụp giữa (ẩn chỉ giữ trong phiên hiện tại)
         getSharedPreferences("settings", MODE_PRIVATE)
                 .edit()

@@ -21,6 +21,7 @@
     <string name="vietnamese">Vietnamese</string>
     <string name="english">English</string>
     <string name="korean">Korean</string>
+    <string name="chinese">Chinese (Simplified)</string>
     <string name="DownloadImage">Print QR code</string>
     <string name="print_bitmap_mode">Bitmap print mode</string>
     <string name="print_mode_threshold">0 — Threshold</string>
@@ -28,6 +29,7 @@
     <string name="print_mode_bayer">2 — Bayer (ordered)</string>
 
     <string name="login_screen_title">M-PHOTO MONO</string>
+    <string name="login_welcome_title">Welcome back</string>
     <string name="login_email_label">Email</string>
     <string name="login_email_hint">Enter email</string>
     <string name="login_password_label">Password</string>
@@ -36,6 +38,8 @@
     <string name="login_guest_button">Use without signing in</string>
     <string name="login_language">Language</string>
     <string name="login_select_language_title">Select language</string>
+    <string name="login_theme_light">Light mode</string>
+    <string name="login_theme_dark">Dark mode</string>
     <string name="login_please_enter_email">Please enter email</string>
     <string name="login_please_enter_password">Please enter password</string>
     <string name="login_successful">Signed in successfully</string>

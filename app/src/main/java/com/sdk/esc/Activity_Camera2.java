@@ -141,7 +141,7 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
     List<String> bitmapListImageView2;
     int currentIndexImageView2;
     private void changeLanguageFirst(String langCode) {
-        Locale locale = new Locale(langCode);
+        Locale locale = "zh".equals(langCode) ? Locale.SIMPLIFIED_CHINESE : new Locale(langCode);
         Locale.setDefault(locale);
 
         Configuration config = new Configuration();
