@@ -66,13 +66,14 @@ public final class FrontCameraEvfStreamer {
     private final AtomicBoolean frameBusy = new AtomicBoolean(false);
     private final AtomicLong seq = new AtomicLong(0);
     private final AtomicLong lastEmitMs = new AtomicLong(0);
+    private final AtomicLong cameraGeneration = new AtomicLong(0);
     private final ByteArrayOutputStream jpegBos = new ByteArrayOutputStream(48 * 1024);
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
-    private CameraDevice cameraDevice;
-    private CameraCaptureSession captureSession;
-    private ImageReader imageReader;
+    private volatile CameraDevice cameraDevice;
+    private volatile CameraCaptureSession captureSession;
+    private volatile ImageReader imageReader;
     private String cameraId;
     private TextureView textureView;
     private int sensorOrientation = 0;
@@ -151,15 +152,16 @@ public final class FrontCameraEvfStreamer {
             return;
         }
         running.set(true);
+        final long generation = cameraGeneration.incrementAndGet();
         cameraThread = new HandlerThread("FrontCamEvf");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
         cameraHandler.post(() -> {
             try {
-                openFrontCamera();
+                openFrontCamera(generation);
             } catch (Throwable t) {
                 Log.e(TAG, "openFrontCamera fatal", t);
-                running.set(false);
+                if (cameraGeneration.get() == generation) running.set(false);
             }
         });
         Log.d(TAG, "startFrontCamera");
@@ -170,6 +172,7 @@ public final class FrontCameraEvfStreamer {
     }
 
     private void stopInternal(boolean clearTexture) {
+        cameraGeneration.incrementAndGet();
         running.set(false);
         mainHandler.removeCallbacks(textureGrabRunnable);
         if (clearTexture) {
@@ -281,14 +284,18 @@ public final class FrontCameraEvfStreamer {
         return grabLayer;
     }
 
-    private void openFrontCamera() {
-        if (!running.get()) return;
+    private void openFrontCamera(final long generation) {
+        if (!isCameraRunActive(generation)) return;
         CameraManager manager = (CameraManager) appContext.getSystemService(Context.CAMERA_SERVICE);
-        if (manager == null) return;
+        if (manager == null) {
+            if (cameraGeneration.get() == generation) running.set(false);
+            return;
+        }
         try {
             cameraId = findFrontCameraId(manager);
             if (cameraId == null) {
                 Log.w(TAG, "No front camera");
+                if (cameraGeneration.get() == generation) running.set(false);
                 return;
             }
             CameraCharacteristics chars = manager.getCameraCharacteristics(cameraId);
@@ -298,8 +305,10 @@ public final class FrontCameraEvfStreamer {
             // YUV nhỏ — JPEG repeating không ổn định trên nhiều máy Android.
             imageReader = ImageReader.newInstance(
                     preview.getWidth(), preview.getHeight(), ImageFormat.YUV_420_888, 2);
-            imageReader.setOnImageAvailableListener(reader -> {
-                if (!running.get()) return;
+            final ImageReader readerForRun = imageReader;
+            readerForRun.setOnImageAvailableListener(reader -> {
+                if (!isCameraRunActive(generation) || reader != readerForRun
+                        || imageReader != readerForRun) return;
                 Image image = null;
                 try {
                     image = reader.acquireLatestImage();
@@ -344,57 +353,77 @@ public final class FrontCameraEvfStreamer {
 
             if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA)
                     != PackageManager.PERMISSION_GRANTED) {
+                if (cameraGeneration.get() == generation) running.set(false);
                 return;
             }
+            if (!isCameraRunActive(generation)) return;
             manager.openCamera(cameraId, new CameraDevice.StateCallback() {
                 @Override
                 public void onOpened(@NonNull CameraDevice camera) {
-                    if (!running.get()) {
-                        camera.close();
+                    if (!isCameraRunActive(generation)) {
+                        try {
+                            camera.close();
+                        } catch (Throwable ignored) {
+                        }
                         return;
                     }
                     cameraDevice = camera;
-                    createSession();
+                    createSession(camera, readerForRun, generation);
                 }
 
                 @Override
                 public void onDisconnected(@NonNull CameraDevice camera) {
+                    if (cameraGeneration.get() == generation) {
+                        if (cameraDevice == camera) cameraDevice = null;
+                        running.set(false);
+                        closeCaptureSession();
+                    }
                     try {
                         camera.close();
                     } catch (Throwable ignored) {
                     }
-                    cameraDevice = null;
                 }
 
                 @Override
                 public void onError(@NonNull CameraDevice camera, int error) {
                     Log.e(TAG, "camera error " + error);
+                    if (cameraGeneration.get() == generation) {
+                        if (cameraDevice == camera) cameraDevice = null;
+                        running.set(false);
+                        closeCaptureSession();
+                    }
                     try {
                         camera.close();
                     } catch (Throwable ignored) {
                     }
-                    cameraDevice = null;
                 }
             }, cameraHandler);
         } catch (SecurityException | CameraAccessException e) {
             Log.e(TAG, "openFrontCamera", e);
+            if (cameraGeneration.get() == generation) running.set(false);
         } catch (Throwable t) {
             Log.e(TAG, "openFrontCamera unexpected", t);
+            if (cameraGeneration.get() == generation) running.set(false);
         }
     }
 
-    private void createSession() {
-        if (cameraDevice == null || imageReader == null || !running.get()) return;
+    private boolean isCameraRunActive(long generation) {
+        return running.get() && cameraGeneration.get() == generation;
+    }
+
+    private void createSession(CameraDevice openedCamera, ImageReader reader, long generation) {
+        if (!isCameraRunActive(generation) || cameraDevice != openedCamera || imageReader != reader) return;
         try {
-            Surface surface = imageReader.getSurface();
+            Surface surface = reader.getSurface();
             final CaptureRequest.Builder builder =
-                    cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                    openedCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             builder.addTarget(surface);
-            cameraDevice.createCaptureSession(Collections.singletonList(surface),
+            openedCamera.createCaptureSession(Collections.singletonList(surface),
                     new CameraCaptureSession.StateCallback() {
                         @Override
                         public void onConfigured(@NonNull CameraCaptureSession session) {
-                            if (!running.get() || cameraDevice == null) {
+                            if (!isCameraRunActive(generation) || cameraDevice != openedCamera
+                                    || imageReader != reader) {
                                 try {
                                     session.close();
                                 } catch (Throwable ignored) {
@@ -413,10 +442,31 @@ public final class FrontCameraEvfStreamer {
                         @Override
                         public void onConfigureFailed(@NonNull CameraCaptureSession session) {
                             Log.e(TAG, "configure failed");
+                            try {
+                                session.close();
+                            } catch (Throwable ignored) {
+                            }
+                            if (cameraGeneration.get() == generation && cameraDevice == openedCamera) {
+                                running.set(false);
+                            }
                         }
                     }, cameraHandler);
         } catch (CameraAccessException | IllegalStateException e) {
             Log.e(TAG, "createSession", e);
+            if (cameraGeneration.get() == generation && cameraDevice == openedCamera) {
+                running.set(false);
+            }
+        }
+    }
+
+    private void closeCaptureSession() {
+        CameraCaptureSession session = captureSession;
+        captureSession = null;
+        if (session != null) {
+            try {
+                session.close();
+            } catch (Throwable ignored) {
+            }
         }
     }
 

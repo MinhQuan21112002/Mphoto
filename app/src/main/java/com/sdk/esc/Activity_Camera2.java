@@ -1095,12 +1095,22 @@ public class Activity_Camera2 extends AppCompatActivity implements ControlPageCo
         }
         @Override
         public void onDisconnected(@NonNull CameraDevice camera) {
-            cameraDevice.close();
+            if (cameraDevice == camera) cameraDevice = null;
+            try {
+                camera.close();
+            } catch (Exception e) {
+                Log.w(TAG, "close disconnected camera: " + e.getMessage());
+            }
         }
         @Override
         public void onError(@NonNull CameraDevice camera, int error) {
-            cameraDevice.close();
-            cameraDevice = null;
+            Log.e(TAG, "CameraDevice error=" + error);
+            if (cameraDevice == camera) cameraDevice = null;
+            try {
+                camera.close();
+            } catch (Exception e) {
+                Log.w(TAG, "close errored camera: " + e.getMessage());
+            }
         }
     };
 

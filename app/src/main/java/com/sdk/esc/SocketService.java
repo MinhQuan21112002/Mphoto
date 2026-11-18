@@ -16,8 +16,11 @@ import java.lang.ref.WeakReference;
 import java.net.URISyntaxException;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import io.socket.client.Ack;
 import io.socket.client.IO;
@@ -36,10 +39,14 @@ public class SocketService {
 
     private static SocketService instance;
     private volatile Socket socket;
+    private volatile Socket evfSocket;
     private volatile boolean lastCameraConnected;
     private String lastBatterySignature = "";
     private android.content.Context appContext;
     private String boundSocketUrl;
+    private String boundEvfSocketUrl;
+    private volatile String joinedEvfMachineRoomId;
+    private volatile String joinedEvfProduct;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService stateEmitExecutor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "mono-control-state");
@@ -77,8 +84,30 @@ public class SocketService {
     };
     private final AtomicInteger evfEmitGate = new AtomicInteger(0);
     private final AtomicInteger micEmitGate = new AtomicInteger(0);
+    private final AtomicLong evfTransportGeneration = new AtomicLong(0L);
+    private final AtomicLong micTransportGeneration = new AtomicLong(0L);
     private volatile long evfCooldownUntilMs = 0L;
     private volatile long evfLastAckMs = System.currentTimeMillis();
+    private volatile boolean evfSocketFramesPaused;
+    private volatile long evfSocketFramesPausedAtMs;
+    private volatile boolean evfPingWaiting;
+    private volatile long evfPingSentAtMs;
+    private volatile long evfLastPingAckAtMs;
+    private volatile long evfConnectAttemptStartedAtMs;
+    private volatile long evfDisconnectedSinceMs;
+    private volatile boolean evfSocketWatchStarted;
+    private final ScheduledExecutorService evfSocketExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "Mono-EvfSocketWatchdog");
+        t.setDaemon(true);
+        return t;
+    });
+    private static final long EVF_HEALTH_PING_INTERVAL_MS = 8_000L;
+    private static final long EVF_HEALTH_PING_TIMEOUT_MS = 18_000L;
+    private static final long EVF_CONNECT_ATTEMPT_TIMEOUT_MS = 20_000L;
+    private static final long EVF_RECONNECT_WINDOW_MS = 60_000L;
+    private static final long EVF_RECONNECT_PROGRESS_TIMEOUT_MS = 60_000L;
+    private static final int EVF_MIC_SOCKET_MAX_INFLIGHT = 3;
+    private static final long EVF_MIC_SOCKET_ACK_TIMEOUT_MS = 400L;
     private volatile boolean wantConnected = false;
     private volatile boolean pingWaiting = false;
     private long pingSentAt = 0L;
@@ -170,6 +199,7 @@ public class SocketService {
             setupSocketManagerListeners(socket.io());
             mainHandler.removeCallbacks(connWatchRunnable);
             mainHandler.postDelayed(connWatchRunnable, 8000);
+            startEvfSocketWatchdog();
             Log.d(TAG, "Socket bound to " + url);
         } catch (URISyntaxException e) {
             Log.e(TAG, "Socket init error", e);
@@ -196,6 +226,204 @@ public class SocketService {
         });
     }
 
+    /** EVF has its own Engine.IO manager so media congestion cannot rebuild app control. */
+    private synchronized void ensureEvfSocket() {
+        String url = ApiConfig.getBaseUrl();
+        if (evfSocket != null && url.equals(boundEvfSocketUrl)) return;
+        try {
+            Socket previous = evfSocket;
+            evfSocket = null;
+            boundEvfSocketUrl = null;
+            if (previous != null) {
+                try {
+                    previous.off();
+                    previous.disconnect();
+                } catch (Exception ignored) {
+                }
+            }
+
+            IO.Options opts = new IO.Options();
+            opts.forceNew = true;
+            opts.reconnection = true;
+            opts.reconnectionAttempts = Integer.MAX_VALUE;
+            opts.timeout = 15000;
+            opts.reconnectionDelay = 4000;
+            opts.reconnectionDelayMax = 20000;
+            opts.randomizationFactor = 0.25;
+            opts.transports = new String[]{"polling", "websocket"};
+            opts.upgrade = true;
+            evfSocket = IO.socket(url, opts);
+            boundEvfSocketUrl = url;
+            resetEvfTransportState("socket-instance-created");
+            setupEvfListeners(evfSocket);
+            setupEvfSocketManagerListeners(evfSocket, evfSocket.io());
+            Log.d(TAG, "EVF Socket.IO initialized on separate transport: " + url);
+        } catch (URISyntaxException e) {
+            Log.e(TAG, "EVF socket init error", e);
+        } catch (Exception e) {
+            Log.e(TAG, "EVF socket initialization error", e);
+        }
+    }
+
+    private void setupEvfSocketManagerListeners(Socket owner, Manager manager) {
+        if (manager == null) return;
+        manager.on(Manager.EVENT_RECONNECT_ATTEMPT, args -> {
+            if (evfSocket != owner) return;
+            evfConnectAttemptStartedAtMs = System.currentTimeMillis();
+            Object attempt = args != null && args.length > 0 ? args[0] : "?";
+            Log.w(TAG, "EVF Socket.IO reconnect attempt=" + attempt);
+        });
+        manager.on(Manager.EVENT_RECONNECT_ERROR, args -> {
+            if (evfSocket != owner) return;
+            Object error = args != null && args.length > 0 ? args[0] : "unknown";
+            Log.e(TAG, "EVF Socket.IO reconnect error: " + error);
+        });
+        manager.on(Manager.EVENT_RECONNECT_FAILED, args -> {
+            if (evfSocket != owner) return;
+            evfConnectAttemptStartedAtMs = 0L;
+            Log.e(TAG, "EVF Socket.IO reconnection attempts exhausted");
+        });
+        manager.on(Manager.EVENT_ERROR, args -> {
+            if (evfSocket != owner) return;
+            Object error = args != null && args.length > 0 ? args[0] : "unknown";
+            Log.e(TAG, "EVF Socket.IO manager error: " + error);
+        });
+    }
+
+    private void resetEvfTransportState(String reason) {
+        evfPingWaiting = false;
+        evfPingSentAtMs = 0L;
+        evfLastPingAckAtMs = 0L;
+        evfConnectAttemptStartedAtMs = 0L;
+        evfDisconnectedSinceMs = System.currentTimeMillis();
+        joinedEvfMachineRoomId = null;
+        joinedEvfProduct = null;
+        evfTransportGeneration.incrementAndGet();
+        evfEmitGate.set(0);
+        micTransportGeneration.incrementAndGet();
+        micEmitGate.set(0);
+        evfSocketFramesPaused = true;
+        evfSocketFramesPausedAtMs = System.currentTimeMillis();
+        Log.d(TAG, "EVF transport reset: " + reason);
+    }
+
+    private synchronized void connectEvfSocketIfWanted() {
+        if (!wantConnected || pendingMachineAppRoomId == null || pendingMachineAppRoomId.isEmpty()) return;
+        ensureEvfSocket();
+        Socket current = evfSocket;
+        if (current == null) return;
+        if (current.connected()) {
+            emitJoinMachineEvfRoomIfPending();
+            return;
+        }
+        Manager manager = current.io();
+        if (manager != null && manager.isReconnecting()) return;
+        long now = System.currentTimeMillis();
+        if (evfConnectAttemptStartedAtMs > 0L) {
+            long ageMs = now - evfConnectAttemptStartedAtMs;
+            if (ageMs < EVF_CONNECT_ATTEMPT_TIMEOUT_MS) return;
+            Log.w(TAG, "EVF socket open attempt timed out after " + ageMs + "ms; rebuilding EVF only");
+            rebuildEvfSocket("connect-attempt-timeout");
+            return;
+        }
+        evfConnectAttemptStartedAtMs = now;
+        Log.d(TAG, "Opening separate EVF Socket.IO transport");
+        try {
+            current.connect();
+        } catch (Exception e) {
+            if (evfSocket == current) evfConnectAttemptStartedAtMs = 0L;
+            Log.w(TAG, "EVF socket connect: " + e.getMessage());
+        }
+    }
+
+    private synchronized void ensureLiveEvfSocket() {
+        if (!wantConnected || pendingMachineAppRoomId == null || pendingMachineAppRoomId.isEmpty()) return;
+        ensureEvfSocket();
+        Socket current = evfSocket;
+        if (current == null) return;
+        long now = System.currentTimeMillis();
+        if (!current.connected()) {
+            if (evfDisconnectedSinceMs == 0L) evfDisconnectedSinceMs = now;
+            Manager manager = current.io();
+            if (manager != null && manager.isReconnecting()) {
+                long downMs = now - evfDisconnectedSinceMs;
+                long lastAttempt = evfConnectAttemptStartedAtMs;
+                if (downMs >= EVF_RECONNECT_WINDOW_MS
+                        || (lastAttempt > 0L && now - lastAttempt >= EVF_RECONNECT_PROGRESS_TIMEOUT_MS)) {
+                    Log.w(TAG, "EVF reconnect stalled for " + downMs + "ms; rebuilding EVF only");
+                    rebuildEvfSocket("reconnect-stalled");
+                }
+                return;
+            }
+            connectEvfSocketIfWanted();
+            return;
+        }
+
+        if (evfPingWaiting) {
+            if (now - evfPingSentAtMs >= EVF_HEALTH_PING_TIMEOUT_MS) {
+                Log.w(TAG, "EVF health ping timed out; rebuilding EVF transport only");
+                rebuildEvfSocket("health-ping-timeout");
+            }
+            return;
+        }
+        if (now - evfPingSentAtMs < EVF_HEALTH_PING_INTERVAL_MS) return;
+
+        evfPingWaiting = true;
+        evfPingSentAtMs = now;
+        final long generation = evfTransportGeneration.get();
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("machineCode", pendingMachineAppRoomId);
+            payload.put("t", now);
+            current.emit("evf-socket-ping", payload, (Ack) args -> {
+                if (evfSocket != current || evfTransportGeneration.get() != generation) return;
+                evfLastPingAckAtMs = System.currentTimeMillis();
+                evfPingWaiting = false;
+                evfPingSentAtMs = evfLastPingAckAtMs;
+                evfDisconnectedSinceMs = 0L;
+                recoverEvfFramesAfterPing(evfLastPingAckAtMs);
+            });
+        } catch (Exception e) {
+            if (evfSocket == current && evfTransportGeneration.get() == generation) {
+                evfPingWaiting = false;
+            }
+            Log.w(TAG, "EVF health ping: " + e.getMessage());
+        }
+    }
+
+    private synchronized void rebuildEvfSocket(String reason) {
+        if (!wantConnected) return;
+        Socket previous = evfSocket;
+        evfSocket = null;
+        boundEvfSocketUrl = null;
+        resetEvfTransportState(reason);
+        if (previous != null) {
+            try {
+                previous.off();
+                previous.disconnect();
+            } catch (Exception ignored) {
+            }
+        }
+        ensureEvfSocket();
+        connectEvfSocketIfWanted();
+    }
+
+    private void startEvfSocketWatchdog() {
+        if (evfSocketWatchStarted) return;
+        synchronized (this) {
+            if (evfSocketWatchStarted) return;
+            evfSocketWatchStarted = true;
+            evfSocketExecutor.scheduleWithFixedDelay(() -> {
+                try {
+                    ensureLiveEvfSocket();
+                } catch (Exception e) {
+                    Log.w(TAG, "EVF socket watchdog: " + e.getMessage());
+                }
+            }, 2, 8, TimeUnit.SECONDS);
+            Log.d(TAG, "EVF socket watchdog started");
+        }
+    }
+
     /** Gọi sau khi đổi Local/Railway (debug). */
     public synchronized void reconnectForApiConfig() {
         wantConnected = false;
@@ -218,13 +446,13 @@ public class SocketService {
             }
             emitJoinMachineAppRoomIfPending();
             emitJoinUserRoomIfPending();
+            connectEvfSocketIfWanted();
             startPrinterStatusPoll();
             pingWaiting = false;
             missedAppPingCount = 0;
             lastAppPingAckAtMs = System.currentTimeMillis();
             disconnectedSinceMs = 0L;
             if (evfWanted) {
-                startEvfStreaming();
                 emitCameraSettingsForControlPage(true);
             }
         });
@@ -234,8 +462,6 @@ public class SocketService {
             Log.w(TAG, "Socket disconnected: " + reason);
             pingWaiting = false;
             lastAppPingAckAtMs = 0L;
-            evfEmitGate.set(0);
-            micEmitGate.set(0);
             if (wantConnected && disconnectedSinceMs == 0L) {
                 disconnectedSinceMs = System.currentTimeMillis();
             }
@@ -279,84 +505,6 @@ public class SocketService {
         socket.on("collection:retention-changed", args -> handleCollectionRetentionSocket(args));
         socket.on("auth:force-logout", args -> handleForceLogoutSocket(args));
 
-        socket.on("evf-stream-subscribe", args -> {
-            if (!machineMatches(coerceJsonObject(args))) return;
-            if (evfTeardownRunnable != null) {
-                mainHandler.removeCallbacks(evfTeardownRunnable);
-                evfTeardownRunnable = null;
-            }
-            if (evfStopStreamingRunnable != null) {
-                mainHandler.removeCallbacks(evfStopStreamingRunnable);
-                evfStopStreamingRunnable = null;
-            }
-            Log.d(TAG, "evf-stream-subscribe");
-            evfWanted = true;
-            // Không reset WebRTC ở đây — F5/resubscribe không làm app đứng.
-            if (evfStreamer != null && evfStreamer.isRunning()) {
-                Log.d(TAG, "evf-stream-subscribe — already streaming");
-            } else {
-                startEvfStreaming();
-            }
-            EvfMicSocketCapture.getInstance().setStreamActive(true);
-            emitCameraSettingsForControlPage(true);
-        });
-        socket.on("evf-stream-unsubscribe", args -> {
-            if (!machineMatches(coerceJsonObject(args))) return;
-            Log.d(TAG, "evf-stream-unsubscribe");
-            evfWanted = false;
-            EvfMicSocketCapture.getInstance().setStreamActive(false);
-            scheduleEvfStopStreaming();
-            scheduleEvfTeardownReset();
-        });
-        socket.on("evf-stream-resync", args -> {
-            if (!machineMatches(coerceJsonObject(args))) return;
-            if (evfStopStreamingRunnable != null) {
-                mainHandler.removeCallbacks(evfStopStreamingRunnable);
-                evfStopStreamingRunnable = null;
-            }
-            Log.d(TAG, "evf-stream-resync");
-            evfWanted = true;
-            // Resync layout/WebRTC — không restart camera nếu stream đang chạy (F5).
-            if (evfStreamer == null || !evfStreamer.isRunning()) {
-                startEvfStreaming();
-            }
-            EvfMicSocketCapture.getInstance().setStreamActive(true);
-            emitCameraSettingsForControlPage(true);
-        });
-        socket.on("evf-webrtc-signal", args -> {
-            try {
-                JSONObject data = coerceJsonObject(args);
-                Log.d(TAG, "evf-webrtc-signal rawType="
-                        + (args != null && args.length > 0 && args[0] != null
-                        ? args[0].getClass().getName() : "null")
-                        + " parsed=" + (data != null)
-                        + " type=" + (data != null ? data.optString("type") : "-"));
-                if (!machineMatches(data)) {
-                    Log.w(TAG, "evf-webrtc-signal machine mismatch");
-                    return;
-                }
-                String mc = resolveMachineCode();
-                emitWebRtcDiag(mc, "offer-seen", data != null ? data.optString("type", "") : "null-data");
-                EvfWebRtcService rtc = EvfWebRtcService.peek();
-                if (rtc == null && appContext != null) {
-                    EvfWebRtcService.init(appContext, this::emitWebRtcSignal);
-                    rtc = EvfWebRtcService.peek();
-                }
-                if (rtc == null) {
-                    Log.e(TAG, "evf-webrtc-signal: EvfWebRtcService null");
-                    emitWebRtcDiag(mc, "error", "rtc-null");
-                    return;
-                }
-                if (data == null) {
-                    emitWebRtcDiag(mc, "error", "parse-null");
-                    return;
-                }
-                rtc.handleSignal(mc, data);
-            } catch (Throwable e) {
-                Log.e(TAG, "evf-webrtc-signal", e);
-                emitWebRtcDiag(resolveMachineCode(), "error", e.getClass().getSimpleName() + ": " + e.getMessage());
-            }
-        });
         socket.on("request-camera-settings", args -> {
             if (!machineMatches(coerceJsonObject(args))) return;
             startPrinterStatusPoll();
@@ -381,6 +529,128 @@ public class SocketService {
             JSONObject data = coerceJsonObject(args);
             if (!machineMatches(data)) return;
             handleCameraCommand(data);
+        });
+    }
+
+    private void setupEvfListeners(Socket owner) {
+        owner.on(Socket.EVENT_CONNECT, args -> {
+            if (evfSocket != owner) return;
+            long now = System.currentTimeMillis();
+            Log.i(TAG, "EVF transport connected; joining isolated room id=" + owner.id());
+            evfPingWaiting = false;
+            evfPingSentAtMs = now;
+            evfLastPingAckAtMs = now;
+            evfDisconnectedSinceMs = 0L;
+            evfConnectAttemptStartedAtMs = 0L;
+            evfTransportGeneration.incrementAndGet();
+            evfEmitGate.set(0);
+            micTransportGeneration.incrementAndGet();
+            micEmitGate.set(0);
+            evfLastAckMs = now;
+            evfSocketFramesPaused = false;
+            evfSocketFramesPausedAtMs = 0L;
+            joinedEvfMachineRoomId = null;
+            joinedEvfProduct = null;
+            emitJoinMachineEvfRoomIfPending();
+            EvfWebRtcService rtc = EvfWebRtcService.peek();
+            if (rtc != null) rtc.reset();
+            if (evfWanted) {
+                startEvfStreaming();
+                EvfMicSocketCapture.getInstance().setStreamActive(true);
+            }
+        });
+
+        owner.on(Socket.EVENT_DISCONNECT, args -> {
+            if (evfSocket != owner) return;
+            String reason = args != null && args.length > 0
+                    ? String.valueOf(args[0]) : "unknown";
+            Log.w(TAG, "EVF transport disconnected: " + reason);
+            resetEvfTransportState("disconnect:" + reason);
+            EvfWebRtcService rtc = EvfWebRtcService.peek();
+            if (rtc != null) rtc.reset();
+            if (wantConnected && "io server disconnect".equals(reason)) {
+                evfSocketExecutor.schedule(this::connectEvfSocketIfWanted, 1200, TimeUnit.MILLISECONDS);
+            }
+        });
+
+        owner.on(Socket.EVENT_CONNECT_ERROR, args -> {
+            if (evfSocket != owner) return;
+            Object error = args != null && args.length > 0 ? args[0] : "unknown";
+            Log.e(TAG, "EVF Socket.IO connection error: " + error
+                    + " managerReconnecting=" + owner.io().isReconnecting());
+        });
+
+        owner.on("evf-stream-subscribe", args -> {
+            if (evfSocket != owner || !machineMatches(coerceJsonObject(args))) return;
+            if (evfTeardownRunnable != null) {
+                mainHandler.removeCallbacks(evfTeardownRunnable);
+                evfTeardownRunnable = null;
+            }
+            if (evfStopStreamingRunnable != null) {
+                mainHandler.removeCallbacks(evfStopStreamingRunnable);
+                evfStopStreamingRunnable = null;
+            }
+            Log.d(TAG, "EVF transport received evf-stream-subscribe");
+            evfWanted = true;
+            if (evfStreamer == null || !evfStreamer.isRunning()) startEvfStreaming();
+            EvfMicSocketCapture.getInstance().setStreamActive(true);
+            emitCameraSettingsForControlPage(true);
+        });
+        owner.on("evf-stream-unsubscribe", args -> {
+            if (evfSocket != owner || !machineMatches(coerceJsonObject(args))) return;
+            Log.d(TAG, "EVF transport received evf-stream-unsubscribe");
+            evfWanted = false;
+            EvfMicSocketCapture.getInstance().setStreamActive(false);
+            scheduleEvfStopStreaming();
+            scheduleEvfTeardownReset();
+        });
+        owner.on("evf-stream-resync", args -> {
+            if (evfSocket != owner || !machineMatches(coerceJsonObject(args))) return;
+            if (evfStopStreamingRunnable != null) {
+                mainHandler.removeCallbacks(evfStopStreamingRunnable);
+                evfStopStreamingRunnable = null;
+            }
+            Log.d(TAG, "EVF transport received evf-stream-resync");
+            evfWanted = true;
+            if (evfStreamer == null || !evfStreamer.isRunning()) startEvfStreaming();
+            EvfMicSocketCapture.getInstance().setStreamActive(true);
+            emitCameraSettingsForControlPage(true);
+        });
+        owner.on("evf-webrtc-signal", args -> {
+            if (evfSocket != owner) return;
+            try {
+                JSONObject data = coerceJsonObject(args);
+                Log.d(TAG, "EVF transport signal rawType="
+                        + (args != null && args.length > 0 && args[0] != null
+                        ? args[0].getClass().getName() : "null")
+                        + " parsed=" + (data != null)
+                        + " type=" + (data != null ? data.optString("type") : "-"));
+                if (!machineMatches(data)) {
+                    Log.w(TAG, "EVF WebRTC signal machine mismatch");
+                    return;
+                }
+                String mc = resolveMachineCode();
+                emitWebRtcDiag(mc, "offer-seen", data != null ? data.optString("type", "") : "null-data");
+                EvfWebRtcService rtc = EvfWebRtcService.peek();
+                if (rtc == null && appContext != null) {
+                    EvfWebRtcService.init(appContext, this::emitWebRtcSignal);
+                    rtc = EvfWebRtcService.peek();
+                }
+                if (rtc == null) {
+                    Log.e(TAG, "EVF WebRTC signal: EvfWebRtcService null");
+                    emitWebRtcDiag(mc, "error", "rtc-null");
+                    return;
+                }
+                if (data == null) {
+                    emitWebRtcDiag(mc, "error", "parse-null");
+                    return;
+                }
+                rtc.handleSignal(mc, data);
+            } catch (Throwable e) {
+                Log.e(TAG, "EVF WebRTC signal", e);
+                emitWebRtcDiag(resolveMachineCode(), "error",
+                        e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
         });
     }
 
@@ -604,44 +874,116 @@ public class SocketService {
         if (until > evfCooldownUntilMs) evfCooldownUntilMs = until;
     }
 
-    /** Nhiều nhất 2 JPEG chưa ack — không khóa fps theo RTT như chờ từng khung. */
-    private static final int EVF_SOCKET_MAX_INFLIGHT = 3;
+    /** Keep at most two fallback JPEG frames in flight. */
+    private static final int EVF_SOCKET_MAX_INFLIGHT = 2;
 
     private void emitBinaryOneAtATime(String event, JSONObject payload, byte[] bin, int timeoutMs, AtomicInteger gate) {
-        if (!evfWanted || socket == null || !socket.connected() || payload == null || bin == null) return;
+        Socket frameSocket = evfSocket;
+        if (!evfWanted || frameSocket == null || !frameSocket.connected()
+                || evfSocketFramesPaused || payload == null || bin == null) return;
         long now = System.currentTimeMillis();
         if (now < evfCooldownUntilMs) return;
         int pending = gate.get();
         if (pending >= EVF_SOCKET_MAX_INFLIGHT) {
             if (now - evfLastAckMs > 1200L) {
-                gate.set(0);
-                armEvfSocketFallbackCooldown(600);
+                pauseEvfSocketFrames("waiting for frame ACK");
             }
             return;
         }
+        long generation = evfTransportGeneration.get();
         if (!gate.compareAndSet(pending, pending + 1)) return;
+        if (evfSocket != frameSocket || evfTransportGeneration.get() != generation) {
+            if (evfTransportGeneration.get() == generation) {
+                gate.compareAndSet(pending + 1, pending);
+            }
+            return;
+        }
         try {
-            socket.emit(event, payload, bin, (Ack) args -> {
+            frameSocket.emit(event, payload, bin, (Ack) args -> {
+                if (evfSocket != frameSocket || evfTransportGeneration.get() != generation) return;
                 gate.updateAndGet(v -> Math.max(0, v - 1));
                 evfLastAckMs = System.currentTimeMillis();
+                evfSocketFramesPausedAtMs = 0L;
+                evfSocketFramesPaused = false;
             });
         } catch (Exception e) {
-            gate.updateAndGet(v -> Math.max(0, v - 1));
+            if (evfTransportGeneration.get() == generation) {
+                gate.updateAndGet(v -> Math.max(0, v - 1));
+            }
             Log.w(TAG, event + ": " + e.getMessage());
+        }
+        if (gate == evfEmitGate && timeoutMs > 0) {
+            long ackTimeoutMs = Math.max(500L, timeoutMs);
+            evfSocketExecutor.schedule(() -> {
+                if (!evfWanted || evfSocket != frameSocket
+                        || evfTransportGeneration.get() != generation
+                        || !frameSocket.connected() || gate.get() == 0
+                        || evfSocketFramesPaused
+                        || System.currentTimeMillis() - evfLastAckMs < ackTimeoutMs) return;
+                synchronized (SocketService.this) {
+                    if (!evfWanted || evfSocket != frameSocket
+                            || evfTransportGeneration.get() != generation
+                            || !frameSocket.connected() || gate.get() == 0
+                            || evfSocketFramesPaused
+                            || System.currentTimeMillis() - evfLastAckMs < ackTimeoutMs) return;
+                    pauseEvfSocketFrames("frame ACK timeout after " + ackTimeoutMs + "ms");
+                    evfPingSentAtMs = 0L;
+                    ensureLiveEvfSocket();
+                }
+            }, ackTimeoutMs, TimeUnit.MILLISECONDS);
         }
     }
 
     private void emitEvfMicAudioUpdate(byte[] packet) {
-        if (packet == null || packet.length < 6) return;
+        if (packet == null || packet.length < 6 || !evfWanted) return;
         String mc = resolveMachineCode();
         if (mc == null || mc.isEmpty()) return;
         try {
+            Socket micSocket = evfSocket;
+            if (micSocket == null || !micSocket.connected()) return;
+            if (System.currentTimeMillis() < evfCooldownUntilMs) return;
+
             JSONObject payload = new JSONObject();
             payload.put("machineCode", mc.toUpperCase());
             payload.put("encoding", "bin");
             payload.put("ts", System.currentTimeMillis());
-            if (socket != null && socket.connected()) {
-                socket.emit("evf-mic-audio-update", payload, packet);
+
+            int pending = micEmitGate.get();
+            if (pending >= EVF_MIC_SOCKET_MAX_INFLIGHT
+                    || !micEmitGate.compareAndSet(pending, pending + 1)) return;
+            long generation = micTransportGeneration.get();
+            if (evfSocket != micSocket || !micSocket.connected()
+                    || micTransportGeneration.get() != generation) {
+                if (micTransportGeneration.get() == generation) {
+                    micEmitGate.updateAndGet(v -> Math.max(0, v - 1));
+                }
+                return;
+            }
+
+            java.util.concurrent.atomic.AtomicBoolean settled = new java.util.concurrent.atomic.AtomicBoolean(false);
+            try {
+                micSocket.emit("evf-mic-audio-update", payload, packet, (Ack) args -> {
+                    if (evfSocket != micSocket || micTransportGeneration.get() != generation) return;
+                    if (settled.compareAndSet(false, true)) {
+                        micEmitGate.updateAndGet(v -> Math.max(0, v - 1));
+                    }
+                });
+                evfSocketExecutor.schedule(() -> {
+                    if (evfSocket != micSocket || !micSocket.connected()
+                            || micTransportGeneration.get() != generation) return;
+                    if (settled.compareAndSet(false, true)) {
+                        micEmitGate.updateAndGet(v -> Math.max(0, v - 1));
+                        armEvfSocketFallbackCooldown(2000);
+                        Log.w(TAG, "EVF mic ACK timeout; backing off socket fallback");
+                    }
+                }, EVF_MIC_SOCKET_ACK_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                if (evfSocket == micSocket && micTransportGeneration.get() == generation
+                        && settled.compareAndSet(false, true)) {
+                    micEmitGate.updateAndGet(v -> Math.max(0, v - 1));
+                    armEvfSocketFallbackCooldown(2000);
+                }
+                Log.w(TAG, "emitEvfMicAudioUpdate: " + e.getMessage());
             }
         } catch (Exception e) {
             Log.w(TAG, "emitEvfMicAudioUpdate: " + e.getMessage());
@@ -679,21 +1021,23 @@ public class SocketService {
     }
 
     private void emitWebRtcSignal(JSONObject payload) {
-        if (socket == null || !socket.connected() || payload == null) return;
+        Socket currentEvfSocket = evfSocket;
+        if (currentEvfSocket == null || !currentEvfSocket.connected() || payload == null) return;
         try {
             String mc = payload.optString("machineCode", "").trim();
             if (mc.isEmpty()) {
                 String local = resolveMachineCode();
                 if (local != null) payload.put("machineCode", local.toUpperCase());
             }
-            socket.emit("evf-webrtc-signal", payload);
+            currentEvfSocket.emit("evf-webrtc-signal", payload);
         } catch (Exception e) {
             Log.w(TAG, "emitWebRtcSignal: " + e.getMessage());
         }
     }
 
     private void emitWebRtcDiag(String machineCode, String phase, String detail) {
-        if (socket == null || !socket.connected()) return;
+        Socket currentEvfSocket = evfSocket;
+        if (currentEvfSocket == null || !currentEvfSocket.connected()) return;
         try {
             String mc = machineCode != null ? machineCode : resolveMachineCode();
             if (mc == null || mc.isEmpty()) return;
@@ -703,11 +1047,29 @@ public class SocketService {
             payload.put("type", "diag");
             payload.put("phase", phase != null ? phase : "");
             payload.put("detail", detail != null ? detail : "");
-            socket.emit("evf-webrtc-signal", payload);
+            currentEvfSocket.emit("evf-webrtc-signal", payload);
             Log.d(TAG, "WebRTC diag " + phase + " " + detail);
         } catch (Exception e) {
             Log.w(TAG, "emitWebRtcDiag: " + e.getMessage());
         }
+    }
+
+    private void pauseEvfSocketFrames(String reason) {
+        if (!evfSocketFramesPaused) evfSocketFramesPausedAtMs = System.currentTimeMillis();
+        evfSocketFramesPaused = true;
+        Log.w(TAG, "EVF socket frames paused: " + reason);
+    }
+
+    private void recoverEvfFramesAfterPing(long pingAckAtMs) {
+        if (!evfSocketFramesPaused) return;
+        long pausedAt = evfSocketFramesPausedAtMs;
+        if (pausedAt <= 0L || pingAckAtMs < pausedAt) return;
+        int abandonedFrames = evfEmitGate.getAndSet(0);
+        evfTransportGeneration.incrementAndGet();
+        evfLastAckMs = pingAckAtMs;
+        evfSocketFramesPausedAtMs = 0L;
+        evfSocketFramesPaused = false;
+        Log.w(TAG, "EVF frame flow resumed after EVF ping ACK; cleared " + abandonedFrames + " stale frame ACK(s)");
     }
 
     public void emitCameraSettingsForControlPage(boolean cameraConnected) {
@@ -1242,8 +1604,6 @@ public class SocketService {
             if (missedAppPingCount >= 3) {
                 Log.w(TAG, "ensureLive: 3 missed pongs, rebuilding socket");
                 missedAppPingCount = 0;
-                evfEmitGate.set(0);
-                micEmitGate.set(0);
                 rebuildSocket();
                 return;
             }
@@ -1305,6 +1665,7 @@ public class SocketService {
                 Log.d(TAG, "Socket.IO reconnection is active; leaving it to the client");
             }
         }
+        connectEvfSocketIfWanted();
     }
 
     /** Reuse the watchdog's retry logic when an Activity or service returns to foreground. */
@@ -1312,6 +1673,7 @@ public class SocketService {
         wantConnected = true;
         ensureSocket();
         ensureLiveSocket();
+        ensureLiveEvfSocket();
     }
 
     /** Explicit user retry: discard a possibly half-open transport and reconnect. */
@@ -1324,6 +1686,7 @@ public class SocketService {
         }
         Log.w(TAG, "Explicit reconnect requested; resetting socket (connected=" + socket.connected() + ")");
         rebuildSocket();
+        rebuildEvfSocket("manual-reconnect");
     }
 
     public boolean isConnected() {
@@ -1341,6 +1704,16 @@ public class SocketService {
             evfWanted = false;
             stopPrinterStatusPoll();
             stopEvfStreaming();
+            resetEvfTransportState("explicit-disconnect");
+            if (evfSocket != null) {
+                try {
+                    evfSocket.off();
+                    evfSocket.disconnect();
+                } catch (Exception ignored) {
+                }
+                evfSocket = null;
+                boundEvfSocketUrl = null;
+            }
             if (socket != null) {
                 socket.disconnect();
             }
@@ -1377,6 +1750,7 @@ public class SocketService {
         } else if (socket != null) {
             Log.d(TAG, "Machine-app room queued until socket connects: " + pendingMachineAppRoomId);
         }
+        connectEvfSocketIfWanted();
     }
 
     public void joinUserRoom(String token) {
@@ -1418,6 +1792,31 @@ public class SocketService {
             Log.d(TAG, "join-machine-app-room " + payload);
         } catch (Exception e) {
             Log.e(TAG, "emitJoinMachineAppRoomIfPending error", e);
+        }
+    }
+
+    private void emitJoinMachineEvfRoomIfPending() {
+        Socket current = evfSocket;
+        if (current == null || !current.connected()
+                || pendingMachineAppRoomId == null || pendingMachineAppRoomId.isEmpty()) return;
+        String product = pendingAppProduct != null ? pendingAppProduct : "";
+        if (pendingMachineAppRoomId.equals(joinedEvfMachineRoomId)
+                && product.equals(joinedEvfProduct)) return;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("machineCode", pendingMachineAppRoomId);
+            if (pendingAppPlatform != null && !pendingAppPlatform.isEmpty()) {
+                payload.put("platform", pendingAppPlatform);
+            }
+            if (pendingAppProduct != null && !pendingAppProduct.isEmpty()) {
+                payload.put("product", pendingAppProduct);
+            }
+            current.emit("join-machine-evf-room", payload);
+            joinedEvfMachineRoomId = pendingMachineAppRoomId;
+            joinedEvfProduct = product;
+            Log.i(TAG, "EVF transport joined machine-evf room: " + payload);
+        } catch (Exception e) {
+            Log.e(TAG, "EVF join-machine-evf-room error", e);
         }
     }
 }
