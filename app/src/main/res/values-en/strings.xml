@@ -3,6 +3,10 @@
 
     <string name="app_name">M-Photo Mono</string>
     <string name="app_title">M-Photo Mono</string>
+    <string name="manual_mode_title">Manual capture</string>
+    <string name="manual_back">Back</string>
+    <string name="manual_previous_frame">Previous frame</string>
+    <string name="manual_next_frame">Next frame</string>
     <string name="ExposureTime">Exposure Time</string>
     <string name="take_picture">Take Picture</string>
     <string name="settings">Settings</string>
@@ -11,11 +15,12 @@
     <string name="Cancel">Cancel</string>
     <string name="PrintImage">Print Image</string>
     <string name="SelectImageFromGalery">Select image from gallery</string>
-    <string name="RecommendFrame">Recommended frame: 4x3</string>
+    <string name="RecommendFrame">Recommended frame aspect ratio: 4×3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">Image List</string>
     <string name="sub_photo_list_title">Sub-photo list</string>
     <string name="frame_list_title">Frame list</string>
+    <string name="frame_delete">Delete</string>
     <string name="close">Close</string>
     <string name="please_connect_printer">Please connect to And Turn on Printer</string>
     <string name="vietnamese">Vietnamese</string>

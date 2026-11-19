@@ -157,20 +157,38 @@
                 android:minWidth="@dimen/mono_frame_nav_size"
                 android:orientation="vertical">
 
-                <ImageButton
+                <LinearLayout
                     android:id="@+id/button_list"
-                    android:layout_width="@dimen/mono_add_frame_btn_size"
-                    android:layout_height="@dimen/mono_add_frame_btn_size"
+                    android:layout_width="96dp"
+                    android:layout_height="wrap_content"
                     android:layout_gravity="center_horizontal"
                     android:layout_marginTop="@dimen/mono_nav_list_top_inset"
-                    android:background="@drawable/mono_frame_nav_button_bg"
-                    android:contentDescription="@string/settings"
-                    android:minWidth="0dp"
-                    android:minHeight="0dp"
-                    android:padding="8dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/list2"
-                    app:tint="@color/mp_brand_text" />
+                    android:background="@drawable/mono_login_control"
+                    android:clickable="true"
+                    android:contentDescription="@string/frame_list_title"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <ImageView
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:contentDescription="@null"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/list2"
+                        app:tint="@color/mp_brand_text" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:text="@string/frame_list_title"
+                        android:textColor="@color/mp_brand_text"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
                 <Space
                     android:layout_width="match_parent"
@@ -333,8 +351,8 @@
     </FrameLayout>
 
     <FrameLayout
-        android:layout_width="50dp"
-        android:layout_height="50dp"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:layout_alignParentEnd="true"
         android:layout_alignParentTop="true"
         android:layout_margin="16dp"
@@ -371,14 +389,29 @@
 
     <ImageButton
         android:id="@+id/btnChangeLanguage"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:layout_alignStart="@+id/frame_layout_manual"
         android:layout_alignParentTop="true"
         android:layout_margin="16dp"
         android:layout_marginStart="228dp"
         android:background="@null"
+        android:contentDescription="@string/login_language"
+        android:padding="7dp"
         android:scaleType="fitCenter"
-        android:src="@drawable/language"
-        app:tint="@color/mp_brand_primary" />
+        android:src="@drawable/flag_vietnam" />
+
+    <ImageButton
+        android:id="@+id/manualThemeButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_alignTop="@id/btnChangeLanguage"
+        android:layout_toEndOf="@id/btnChangeLanguage"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/mono_login_control"
+        android:contentDescription="@string/login_theme_dark"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/mono_ic_moon"
+        app:tint="@color/mp_brand_text_muted" />
 </RelativeLayout>

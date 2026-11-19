@@ -3,6 +3,10 @@
 
     <string name="app_name">M-Photo Mono</string>
     <string name="app_title">M-Photo Mono</string>
+    <string name="manual_mode_title">수동 촬영</string>
+    <string name="manual_back">뒤로</string>
+    <string name="manual_previous_frame">이전 프레임</string>
+    <string name="manual_next_frame">다음 프레임</string>
     <string name="ExposureTime">노출 시간</string>
     <string name="take_picture">사진 촬영</string>
     <string name="settings">설정</string>
@@ -11,11 +15,12 @@
     <string name="Cancel">취소</string>
     <string name="PrintImage">이미지 인쇄</string>
     <string name="SelectImageFromGalery">갤러리에서 이미지 선택</string>
-    <string name="RecommendFrame">추천 이미지 종횡비: 4x3</string>
+    <string name="RecommendFrame">추천 이미지 종횡비: 4×3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">이미지 목록</string>
     <string name="sub_photo_list_title">보조 사진 목록</string>
     <string name="frame_list_title">프레임 목록</string>
+    <string name="frame_delete">삭제</string>
     <string name="close">닫기</string>
     <string name="please_connect_printer">프린터를 연결하고 전원을 켜주세요</string>
     <string name="vietnamese">베트남어</string>

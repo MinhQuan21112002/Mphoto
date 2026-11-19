@@ -3,6 +3,10 @@
 
     <string name="app_name">M-Photo Mono</string>
     <string name="app_title">M-Photo Mono</string>
+    <string name="manual_mode_title">Chụp thủ công</string>
+    <string name="manual_back">Quay lại</string>
+    <string name="manual_previous_frame">Khung trước</string>
+    <string name="manual_next_frame">Khung sau</string>
     <string name="ExposureTime">Phơi sáng</string>
     <string name="take_picture">Take picture</string>
     <string name="settings">setting\n</string>
@@ -11,11 +15,12 @@
     <string name="Cancel">Hủy</string>
     <string name="PrintImage">In ảnh</string>
     <string name="SelectImageFromGalery">Chọn ảnh từ thư viện</string>
-    <string name="RecommendFrame">Kích thước khugn Ảnh đề xuất : 4x3</string>
+    <string name="RecommendFrame">Kích thước khung ảnh đề xuất: 4×3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">Danh sách hình ảnh</string>
     <string name="sub_photo_list_title">Danh sách ảnh phụ</string>
     <string name="frame_list_title">Danh sách khung</string>
+    <string name="frame_delete">Xóa</string>
     <string name="close">Đóng</string>
     <string name="please_connect_printer">Vui lòng kết nối và mở máy in</string>
     <string name="vietnamese">Tiếng Việt</string>

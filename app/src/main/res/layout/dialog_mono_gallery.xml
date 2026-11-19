@@ -4,7 +4,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/mono_dialog_panel"
-    android:minHeight="500dp"
     android:orientation="vertical"
     android:padding="16dp">
 
@@ -28,7 +27,7 @@
 
         <Button
             android:id="@+id/btnCloseMonoGallery"
-            style="@style/MonoPinkButton"
+            style="@style/MonoPinkButtonSecondary"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:layout_alignParentEnd="true"
@@ -86,8 +85,7 @@
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:minHeight="400dp">
+        android:layout_weight="1">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recyclerMonoGallery"

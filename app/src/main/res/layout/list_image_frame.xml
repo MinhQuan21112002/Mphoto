@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:background="@drawable/mono_dialog_panel"
     android:orientation="vertical"
     android:padding="16dp">
@@ -23,47 +23,85 @@
         android:fontFamily="sans-serif-medium"
         android:textStyle="bold"/>
 
-        <Button
-            android:id="@+id/btnResyncMonoFrames"
-            style="@style/MonoPinkButtonSecondary"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:minHeight="48dp"
-            android:text="@string/mono_resync" 
-        android:fontFamily="sans-serif-medium"
-        android:textStyle="bold"/>
+        <FrameLayout
+            android:layout_width="104dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="12dp">
+
+            <Button
+                android:id="@+id/btnResyncMonoFrames"
+                style="@style/MonoPinkButtonSecondary"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/mono_resync"
+                android:minHeight="48dp"
+                android:text="@string/mono_resync"
+                android:fontFamily="sans-serif-medium"
+                android:textStyle="bold" />
+
+            <ProgressBar
+                android:id="@+id/frameSyncSpinner"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:elevation="4dp"
+                android:indeterminateTint="@color/mp_brand_primary"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
 
     <TextView
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:layout_marginTop="8dp"
+        android:gravity="center"
         android:text="@string/RecommendFrame"
         android:textColor="@color/mp_brand_text"
-        android:textSize="20sp"
-        android:textStyle="italic" 
-        android:fontFamily="sans-serif-medium"/>
+        android:textSize="15sp"
+        android:textStyle="italic"
+        android:fontFamily="sans-serif-medium" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewImages"
         android:layout_width="match_parent"
-        android:layout_height="420dp"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:layout_marginTop="16dp"
         android:clipToPadding="false"
         android:overScrollMode="ifContentScrolls" />
 
-    <Button
-        android:id="@+id/btnLoadMoreFrame"
-        style="@style/MonoPinkButton"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp"
-        android:minWidth="110dp"
-        android:minHeight="44dp"
-        android:text="@string/load_more" 
-        android:fontFamily="sans-serif-medium"
-        android:textStyle="bold"/>
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnLoadMoreFrame"
+            style="@style/MonoPinkButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="110dp"
+            android:minHeight="44dp"
+            android:text="@string/load_more"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/btnCloseFrameDialog"
+            style="@style/MonoPinkButtonSecondary"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:minWidth="72dp"
+            android:text="@string/close"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold" />
+    </LinearLayout>
 </LinearLayout>

@@ -46,6 +46,16 @@ public class ImageViewListAdapter extends RecyclerView.Adapter<ImageViewListAdap
         notifyDataSetChanged();
     }
 
+    public void replaceItems(List<String> items, int initialVisibleCount) {
+        imageList = items;
+        if (imageList == null) {
+            visibleCount = 0;
+        } else {
+            visibleCount = Math.max(0, Math.min(initialVisibleCount, imageList.size()));
+        }
+        notifyDataSetChanged();
+    }
+
     public boolean increaseVisibleCount(int delta) {
         int old = visibleCount;
         setVisibleCount(old + Math.max(0, delta));

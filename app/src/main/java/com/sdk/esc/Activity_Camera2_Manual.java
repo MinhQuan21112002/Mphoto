@@ -179,7 +179,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
     EditText numberCount;
     ImageButton buttonUp;
     ImageButton buttonDown;
-    ImageButton buttonList;
+    View buttonList;
     List<String> bitmapList;
     List<String> bitmapListImageView2;
     int currentIndexImageView2;
@@ -257,6 +257,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         monoPreviewFlexContent = findViewById(R.id.mono_preview_flex_content);
         frameMonoSecond = findViewById(R.id.frame_mono_second);
         ImageButton btnChangeLanguage = findViewById(R.id.btnChangeLanguage);
+        View manualThemeButton = findViewById(R.id.manualThemeButton);
         ImageButton settingButton = findViewById(R.id.button_settings);
         settingsUpdateBadge = findViewById(R.id.settingsUpdateBadge);
         SoftwareUpdateHelper.acknowledgeInstalledBuild(this);
@@ -271,7 +272,14 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
 
         counterTime=sharedPreferences.getInt("counterTime", 1);
 
-        btnChangeLanguage.setOnClickListener(v -> showLanguagePickerDialog());
+        updateManualToolbarButtons();
+        if (btnChangeLanguage != null) {
+            btnChangeLanguage.setOnClickListener(v -> showLanguagePickerDialog());
+        }
+        if (manualThemeButton != null) {
+            manualThemeButton.setOnClickListener(v ->
+                    MonoThemeManager.setDark(this, !MonoThemeManager.isDark(this)));
+        }
 
         //xu ly anh phu -------------------------------------------------------------
         SharedPreferences sharedPreferences2 = getSharedPreferences("MyAppPrefs2", MODE_PRIVATE);
@@ -475,6 +483,64 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         if (monoSizeRef != null) {
             monoSizeRef.getViewTreeObserver().addOnGlobalLayoutListener(this::onMonoPreviewFlexLayout);
             monoSizeRef.post(this::applyMonoPreviewFlexLayout);
+        }
+    }
+
+    private void updateManualToolbarButtons() {
+        String language = getSharedPreferences("settings", MODE_PRIVATE)
+                .getString("language", "vi");
+        int flagResource;
+        int languageNameResource;
+        switch (language) {
+            case "en":
+                flagResource = R.drawable.flag_english;
+                languageNameResource = R.string.english;
+                break;
+            case "ko":
+                flagResource = R.drawable.flag_korea;
+                languageNameResource = R.string.korean;
+                break;
+            case "zh":
+                flagResource = R.drawable.flag_china;
+                languageNameResource = R.string.chinese;
+                break;
+            case "vi":
+            default:
+                flagResource = R.drawable.flag_vietnam;
+                languageNameResource = R.string.vietnamese;
+                break;
+        }
+
+        ImageButton languageButton = findViewById(R.id.btnChangeLanguage);
+        if (languageButton != null) {
+            languageButton.setImageResource(flagResource);
+            languageButton.setContentDescription(getString(R.string.login_language)
+                    + ": " + getString(languageNameResource));
+        }
+
+        boolean darkMode = MonoThemeManager.isDark(this);
+        int themeLabelResource = darkMode ? R.string.login_theme_light : R.string.login_theme_dark;
+        int themeIconResource = darkMode ? R.drawable.mono_ic_sun : R.drawable.mono_ic_moon;
+        int themeTint = ContextCompat.getColor(this, R.color.mp_brand_text_muted);
+        ImageView themeIcon = findViewById(R.id.manualThemeIcon);
+        if (themeIcon != null) {
+            themeIcon.setImageResource(themeIconResource);
+            themeIcon.setColorFilter(themeTint);
+        } else {
+            ImageButton iconOnlyThemeButton = findViewById(R.id.manualThemeButton);
+            if (iconOnlyThemeButton != null) {
+                iconOnlyThemeButton.setImageResource(themeIconResource);
+                iconOnlyThemeButton.setColorFilter(themeTint);
+            }
+        }
+
+        TextView themeText = findViewById(R.id.manualThemeText);
+        if (themeText != null) {
+            themeText.setText(themeLabelResource);
+        }
+        View themeButton = findViewById(R.id.manualThemeButton);
+        if (themeButton != null) {
+            themeButton.setContentDescription(getString(themeLabelResource));
         }
     }
 
@@ -694,8 +760,24 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         });
     }
 
-    /** Dialog ảnh phụ / khung: nửa phải màn hình. */
-    private void applyRightHalfDialogLayout(@NonNull AlertDialog dialog) {
+    /** Keep media pickers inside the right control panel, clear of the live preview. */
+    private void applyRightPanelDialogLayout(@NonNull AlertDialog dialog) {
+        applyRightPanelDialogLayout(dialog, false);
+    }
+
+    private void applyRightPanelDialogLayout(@NonNull AlertDialog dialog, boolean matchPreviewHeight) {
+        applyRightPanelDialogLayout(dialog, matchPreviewHeight, null);
+    }
+
+    private void applyRightPanelDialogLayout(@NonNull AlertDialog dialog,
+                                             boolean matchPreviewHeight,
+                                             @Nullable View dialogContentView) {
+        applyPanelDialogLayout(dialog, matchPreviewHeight, dialogContentView);
+    }
+
+    private void applyPanelDialogLayout(@NonNull AlertDialog dialog,
+                                        boolean matchPreviewHeight,
+                                        @Nullable View dialogContentView) {
         GlassDialogHelper.applyGlassWindow(dialog);
         Window window = dialog.getWindow();
         if (window == null) {
@@ -703,13 +785,34 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         }
         DisplayMetrics metrics = new DisplayMetrics();
         getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        View rightPanel = findViewById(R.id.frame_layout_manual);
+        int panelWidth = rightPanel == null ? 0 : rightPanel.getWidth();
         WindowManager.LayoutParams layoutParams = new WindowManager.LayoutParams();
         layoutParams.copyFrom(window.getAttributes());
         layoutParams.gravity = Gravity.TOP | Gravity.END;
-        layoutParams.width = (int) (metrics.widthPixels * 0.5f);
-        layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        layoutParams.width = panelWidth > 0 ? panelWidth : (int) (metrics.widthPixels * 0.36f);
         layoutParams.x = 0;
-        layoutParams.y = (int) (48f * metrics.density);
+        View previewArea = matchPreviewHeight ? findViewById(R.id.mono_preview_horizontal_block) : null;
+        if (previewArea != null && previewArea.getHeight() > 0) {
+            int[] previewLocation = new int[2];
+            previewArea.getLocationOnScreen(previewLocation);
+            int previewHeight = previewArea.getHeight();
+            if (dialogContentView != null) {
+                ViewGroup.LayoutParams contentParams = dialogContentView.getLayoutParams();
+                if (contentParams == null) {
+                    contentParams = new ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, previewHeight);
+                } else {
+                    contentParams.height = previewHeight;
+                }
+                dialogContentView.setLayoutParams(contentParams);
+            }
+            layoutParams.height = previewHeight;
+            layoutParams.y = previewLocation[1];
+        } else {
+            layoutParams.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            layoutParams.y = (int) (48f * metrics.density);
+        }
         window.setAttributes(layoutParams);
     }
 
@@ -721,6 +824,8 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         Button btnPickImage = dialogView.findViewById(R.id.btnPickImage);
         Button btnResyncSub = dialogView.findViewById(R.id.btnResyncMonoSubPhotos);
         Button btnLoadMoreSub = dialogView.findViewById(R.id.btnLoadMoreSub);
+        Button btnCloseSubDialog = dialogView.findViewById(R.id.btnCloseSubPhotoDialog);
+        ProgressBar subPhotoSyncSpinner = dialogView.findViewById(R.id.subPhotoSyncSpinner);
 //        Button btnPickImageDrive = dialogView.findViewById(R.id.btnPickImageDrive);
         RecyclerView recyclerView = dialogView.findViewById(R.id.recyclerViewImages);
 
@@ -732,6 +837,9 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         String jsonString = preferences.getString("ImageViewList", "[]");
         Gson gson = new Gson();
         bitmapListImageView2 = gson.fromJson(jsonString, new TypeToken<List<String>>() {}.getType());
+        if (bitmapListImageView2 == null) {
+            bitmapListImageView2 = new ArrayList<>();
+        }
 
         ImageViewListAdapter adapter = new ImageViewListAdapter(this, bitmapListImageView2,
                 position -> {
@@ -835,16 +943,19 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         }
 
         builder.setView(dialogView);
-        builder.setTitle(getString(R.string.sub_photo_list_title));
-        builder.setPositiveButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         AlertDialog dialog = builder.create();
         registerRightPanelDialog(dialog);
         dialog.show();
-        applyRightHalfDialogLayout(dialog);
+        applyRightPanelDialogLayout(dialog, true, dialogView);
+
+        if (btnCloseSubDialog != null) {
+            btnCloseSubDialog.setOnClickListener(v -> dialog.dismiss());
+        }
 
         setCloudControlEnabled(btnResyncSub);
         if (btnResyncSub != null) {
-            btnResyncSub.setOnClickListener(v -> runMonoSubPhotoSyncFromServer(dialog));
+            btnResyncSub.setOnClickListener(v -> runMonoSubPhotoSyncFromServer(
+                    adapter, btnLoadMoreSub, btnResyncSub, subPhotoSyncSpinner, pageSizeSub));
         }
 
         btnPickImage.setOnClickListener(v -> {
@@ -1071,10 +1182,12 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         Button buttonAdd = dialogView.findViewById(R.id.btnAddImage);
         Button btnResyncFrames = dialogView.findViewById(R.id.btnResyncMonoFrames);
         Button btnLoadMoreFrame = dialogView.findViewById(R.id.btnLoadMoreFrame);
+        Button btnCloseFrameDialog = dialogView.findViewById(R.id.btnCloseFrameDialog);
+        ProgressBar frameSyncSpinner = dialogView.findViewById(R.id.frameSyncSpinner);
         RecyclerView recyclerView = dialogView.findViewById(R.id.recyclerViewImages);
 
         // Setup RecyclerView with GridLayoutManager
-        int numberOfColumns = 3; // Number of columns to display
+        int numberOfColumns = 2;
         recyclerView.setLayoutManager(new GridLayoutManager(this, numberOfColumns));
 
         // Load image list from SharedPreferences
@@ -1326,21 +1439,29 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setView(dialogView);
-        builder.setTitle(getString(R.string.frame_list_title));
-        builder.setPositiveButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         AlertDialog dialog = builder.create();
         registerRightPanelDialog(dialog);
         dialog.show();
-        applyRightHalfDialogLayout(dialog);
+        applyRightPanelDialogLayout(dialog, true, dialogView);
+
+        if (btnCloseFrameDialog != null) {
+            btnCloseFrameDialog.setOnClickListener(v -> dialog.dismiss());
+        }
 
         buttonAdd.setTag(dialog);
         setCloudControlEnabled(btnResyncFrames);
         if (btnResyncFrames != null) {
-            btnResyncFrames.setOnClickListener(v -> runMonoFrameSyncFromServer(dialog));
+            btnResyncFrames.setOnClickListener(v -> runMonoFrameSyncFromServer(
+                    adapter, btnLoadMoreFrame, btnResyncFrames, frameSyncSpinner,
+                    pageSizeFrame));
         }
     }
 
-    private void runMonoFrameSyncFromServer(AlertDialog parentDialog) {
+    private void runMonoFrameSyncFromServer(ImageViewListAdapterFrame adapter,
+                                           Button btnLoadMoreFrame,
+                                           Button btnResyncFrames,
+                                           ProgressBar frameSyncSpinner,
+                                           int pageSizeFrame) {
         if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
             Toast.makeText(this, R.string.guest_feature_need_login, Toast.LENGTH_SHORT).show();
             return;
@@ -1350,20 +1471,23 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
             Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
             return;
         }
-        if (parentDialog != null && parentDialog.isShowing()) {
-            parentDialog.dismiss();
+        if (frameSyncSpinner != null) {
+            frameSyncSpinner.setVisibility(View.VISIBLE);
         }
-        ProgressDialog pd = new ProgressDialog(this);
-        pd.setMessage(getString(R.string.mono_syncing));
-        pd.setCancelable(false);
-        pd.show();
+        if (btnResyncFrames != null) {
+            btnResyncFrames.setEnabled(false);
+            btnResyncFrames.setText("");
+            btnResyncFrames.setContentDescription(getString(R.string.mono_syncing));
+        }
         MonoCacheSync.syncFramesInBackground(this, token, new MonoCacheSync.Listener() {
             @Override
             public void onSuccess() {
-                pd.dismiss();
                 SharedPreferences p = getSharedPreferences("FrameImage", Context.MODE_PRIVATE);
                 String json = p.getString("bitmap_list", "[]");
                 bitmapList = new Gson().fromJson(json, new TypeToken<List<String>>() {}.getType());
+                if (bitmapList == null) {
+                    bitmapList = new ArrayList<>();
+                }
                 currentIndex = p.getInt("current_index", 0);
                 if (bitmapList != null && !bitmapList.isEmpty()) {
                     updateImageView(currentIndex);
@@ -1373,20 +1497,41 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                     Bitmap b = imgSolve.drawableToBitmap(noel);
                     frame.setImageBitmap(b);
                 }
+                adapter.replaceItems(bitmapList, pageSizeFrame);
+                if (btnLoadMoreFrame != null) {
+                    btnLoadMoreFrame.setVisibility(adapter.canLoadMore() ? View.VISIBLE : View.GONE);
+                }
+                if (frameSyncSpinner != null) {
+                    frameSyncSpinner.setVisibility(View.GONE);
+                }
+                if (btnResyncFrames != null) {
+                    btnResyncFrames.setEnabled(true);
+                    btnResyncFrames.setText(R.string.mono_resync);
+                    btnResyncFrames.setContentDescription(getString(R.string.mono_resync));
+                }
                 Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_sync_ok, Toast.LENGTH_SHORT).show();
-                showImageFrameDialog();
             }
 
             @Override
             public void onError(String message) {
-                pd.dismiss();
+                if (frameSyncSpinner != null) {
+                    frameSyncSpinner.setVisibility(View.GONE);
+                }
+                if (btnResyncFrames != null) {
+                    btnResyncFrames.setEnabled(true);
+                    btnResyncFrames.setText(R.string.mono_resync);
+                    btnResyncFrames.setContentDescription(getString(R.string.mono_resync));
+                }
                 Toast.makeText(Activity_Camera2_Manual.this, message, Toast.LENGTH_LONG).show();
-                showImageFrameDialog();
             }
         });
     }
 
-    private void runMonoSubPhotoSyncFromServer(AlertDialog parentDialog) {
+    private void runMonoSubPhotoSyncFromServer(ImageViewListAdapter adapter,
+                                              Button btnLoadMoreSub,
+                                              Button btnResyncSub,
+                                              ProgressBar subPhotoSyncSpinner,
+                                              int pageSizeSub) {
         if (!TokenManager.getInstance(this).canUseCloudFeatures()) {
             Toast.makeText(this, R.string.guest_feature_need_login, Toast.LENGTH_SHORT).show();
             return;
@@ -1396,22 +1541,19 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
             Toast.makeText(this, R.string.mono_sync_need_login, Toast.LENGTH_SHORT).show();
             return;
         }
-        if (parentDialog != null && parentDialog.isShowing()) {
-            parentDialog.dismiss();
-        }
-        ProgressDialog pd = new ProgressDialog(this);
-        pd.setMessage(getString(R.string.mono_syncing));
-        pd.setCancelable(false);
-        pd.show();
+        setSubPhotoSyncLoading(btnResyncSub, subPhotoSyncSpinner, true);
         MonoCacheSync.syncSubPhotosInBackground(this, token, new MonoCacheSync.Listener() {
             @Override
             public void onSuccess() {
-                pd.dismiss();
                 SharedPreferences p2 = getSharedPreferences("MyAppPrefs2", Context.MODE_PRIVATE);
                 String json = p2.getString("ImageViewList", "[]");
                 bitmapListImageView2 = new Gson().fromJson(json, new TypeToken<List<String>>() {}.getType());
+                if (bitmapListImageView2 == null) {
+                    bitmapListImageView2 = new ArrayList<>();
+                }
                 currentIndexImageView2 = p2.getInt("indexImageView2", 0);
-                if (bitmapListImageView2 != null && !bitmapListImageView2.isEmpty()) {
+                if (!bitmapListImageView2.isEmpty()) {
+                    currentIndexImageView2 = Math.max(0, Math.min(currentIndexImageView2, bitmapListImageView2.size() - 1));
                     updateImageView2(currentIndexImageView2);
                 } else {
                     @SuppressLint("UseCompatLoadingForDrawables")
@@ -1421,17 +1563,33 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                     image = b;
                     notifyMonoPreviewFlexRecalc();
                 }
+                adapter.replaceItems(bitmapListImageView2, pageSizeSub);
+                if (btnLoadMoreSub != null) {
+                    btnLoadMoreSub.setVisibility(adapter.canLoadMore() ? View.VISIBLE : View.GONE);
+                }
+                setSubPhotoSyncLoading(btnResyncSub, subPhotoSyncSpinner, false);
                 Toast.makeText(Activity_Camera2_Manual.this, R.string.mono_sync_ok, Toast.LENGTH_SHORT).show();
-                showImagePickerDialog();
             }
 
             @Override
             public void onError(String message) {
-                pd.dismiss();
+                setSubPhotoSyncLoading(btnResyncSub, subPhotoSyncSpinner, false);
                 Toast.makeText(Activity_Camera2_Manual.this, message, Toast.LENGTH_LONG).show();
-                showImagePickerDialog();
             }
         });
+    }
+
+    private void setSubPhotoSyncLoading(Button btnResyncSub,
+                                        ProgressBar subPhotoSyncSpinner,
+                                        boolean loading) {
+        if (subPhotoSyncSpinner != null) {
+            subPhotoSyncSpinner.setVisibility(loading ? View.VISIBLE : View.GONE);
+        }
+        if (btnResyncSub != null) {
+            btnResyncSub.setEnabled(!loading);
+            btnResyncSub.setText(loading ? "" : getString(R.string.mono_resync));
+            btnResyncSub.setContentDescription(getString(loading ? R.string.mono_syncing : R.string.mono_resync));
+        }
     }
 
     private void clearIsoExposureRowBackgrounds() {
@@ -1439,7 +1597,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         for (int id : ids) {
             TextView t = findViewById(id);
             if (t != null) {
-                t.setBackgroundColor(Color.TRANSPARENT);
+                t.setBackgroundResource(R.drawable.mono_manual_option);
             }
         }
     }
@@ -1478,127 +1636,127 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         if (isoText8 != null) {
             isoText8.setText(ISO_LEVELS[7]);
             if (ISO_LEVELS[7].equals(isovalue)) {
-                isoText8.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText8.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText11 != null) {
             exposureText11.setText(EXPOSURE_LEVELS_LABEL[12]);
             if (EXPO_US[12].equals(exposurevalue)) {
-                exposureText11.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText11.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText1 != null) {
             isoText1.setText(ISO_LEVELS[0]);
             if (ISO_LEVELS[0].equals(isovalue)) {
-                isoText1.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText1.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText1 != null) {
             exposureText1.setText(EXPOSURE_LEVELS_LABEL[0]);
             if (EXPO_US[0].equals(exposurevalue)) {
-                exposureText1.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText1.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText2 != null) {
             isoText2.setText(ISO_LEVELS[1]);
             if (ISO_LEVELS[1].equals(isovalue)) {
-                isoText2.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText2.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText2 != null) {
             exposureText2.setText(EXPOSURE_LEVELS_LABEL[1]);
             if (EXPO_US[1].equals(exposurevalue)) {
-                exposureText2.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText2.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText3 != null) {
             isoText3.setText(ISO_LEVELS[2]);
             if (ISO_LEVELS[2].equals(isovalue)) {
-                isoText3.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText3.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText3 != null) {
             exposureText3.setText(EXPOSURE_LEVELS_LABEL[2]);
             if (EXPO_US[2].equals(exposurevalue)) {
-                exposureText3.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText3.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText4 != null) {
             isoText4.setText(ISO_LEVELS[3]);
             if (ISO_LEVELS[3].equals(isovalue)) {
-                isoText4.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText4.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText4 != null) {
             exposureText4.setText(EXPOSURE_LEVELS_LABEL[3]);
             if (EXPO_US[3].equals(exposurevalue)) {
-                exposureText4.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText4.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText5 != null) {
             isoText5.setText(ISO_LEVELS[4]);
             if (ISO_LEVELS[4].equals(isovalue)) {
-                isoText5.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText5.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText5 != null) {
             exposureText5.setText(EXPOSURE_LEVELS_LABEL[4]);
             if (EXPO_US[4].equals(exposurevalue)) {
-                exposureText5.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText5.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText6 != null) {
             isoText6.setText(ISO_LEVELS[5]);
             if (ISO_LEVELS[5].equals(isovalue)) {
-                isoText6.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText6.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText6 != null) {
             exposureText6.setText(EXPOSURE_LEVELS_LABEL[5]);
             if (EXPO_US[5].equals(exposurevalue)) {
-                exposureText6.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText6.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (isoText7 != null) {
             isoText7.setText(ISO_LEVELS[6]);
             if (ISO_LEVELS[6].equals(isovalue)) {
-                isoText7.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                isoText7.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText7 != null) {
             exposureText7.setText(EXPOSURE_LEVELS_LABEL[6]);
             if (EXPO_US[6].equals(exposurevalue)) {
-                exposureText7.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText7.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText8 != null) {
             exposureText8.setText(EXPOSURE_LEVELS_LABEL[7]);
             if (EXPO_US[7].equals(exposurevalue)) {
-                exposureText8.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText8.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText9 != null) {
             exposureText9.setText(EXPOSURE_LEVELS_LABEL[8]);
             if (EXPO_US[8].equals(exposurevalue)) {
-                exposureText9.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText9.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText10 != null) {
             exposureText10.setText(EXPOSURE_LEVELS_LABEL[11]);
             if (EXPO_US[11].equals(exposurevalue)) {
-                exposureText10.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText10.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText12 != null) {
             exposureText12.setText(EXPOSURE_LEVELS_LABEL[9]);
             if (EXPO_US[9].equals(exposurevalue)) {
-                exposureText12.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText12.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
         if (exposureText14 != null) {
             exposureText14.setText(EXPOSURE_LEVELS_LABEL[10]);
             if (EXPO_US[10].equals(exposurevalue)) {
-                exposureText14.setBackgroundColor(ContextCompat.getColor(this, R.color.mp_brand_light));
+                exposureText14.setBackgroundResource(R.drawable.mono_manual_option_selected);
             }
         }
     }
@@ -1706,7 +1864,6 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_manual_settings, null);
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setView(dialogView);
-        builder.setNegativeButton(getString(R.string.close), (dialog, which) -> dialog.dismiss());
         final AlertDialog dialog1 = builder.create();
         openSettingsDialog = dialog1;
         dialog1.setOnDismissListener(d -> {
@@ -1721,6 +1878,10 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
                 openSettingsSpinnerPrintMode = null;
             }
         });
+        Button btnCloseSettingsDialog = dialogView.findViewById(R.id.btnCloseSettingsDialog);
+        if (btnCloseSettingsDialog != null) {
+            btnCloseSettingsDialog.setOnClickListener(v -> dialog1.dismiss());
+        }
         androidx.appcompat.widget.SwitchCompat swPrinterTest = dialogView.findViewById(R.id.switchPrinterTestMode);
         openSettingsSwPrinterTest = swPrinterTest;
         if (swPrinterTest != null) {
@@ -1812,7 +1973,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
             btnInstallUpdate.setOnClickListener(v -> SoftwareUpdateHelper.tryInstallPending(Activity_Camera2_Manual.this));
         }
         dialog1.show();
-        GlassDialogHelper.applyGlassWindow(dialog1);
+        applyRightPanelDialogLayout(dialog1, true, dialogView);
     }
 
     /** Cập nhật UI dialog cài đặt khi Control Page đổi print mode / test / QR. */
@@ -2393,16 +2554,7 @@ public class Activity_Camera2_Manual extends AppCompatActivity implements Contro
         }
         galleryDialog.setOnDismissListener(d -> refreshMonoFolderThumbnail());
         galleryDialog.show();
-        GlassDialogHelper.applyGlassWindow(galleryDialog);
-        Window w = galleryDialog.getWindow();
-        if (w != null) {
-            DisplayMetrics m = new DisplayMetrics();
-            getWindowManager().getDefaultDisplay().getMetrics(m);
-            w.setLayout(
-                    (int) (m.widthPixels * 0.92f),
-                    (int) (m.heightPixels * 0.8f)
-            );
-        }
+        applyRightPanelDialogLayout(galleryDialog, true, root);
         // Gọi sau show/setLayout — một số máy mất cancel-outside nếu set trước
         galleryDialog.setCancelable(true);
         galleryDialog.setCanceledOnTouchOutside(true);

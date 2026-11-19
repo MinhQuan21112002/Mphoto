@@ -4,23 +4,24 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingEnd="0dp"
-    android:paddingStart="0dp">
+    android:paddingEnd="4dp"
+    android:paddingStart="4dp">
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
+        android:paddingEnd="8dp"
         android:orientation="vertical">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="8dp"
             android:gravity="center"
             android:text="@string/iso"
             android:textColor="@color/mp_brand_text"
-            android:textSize="20sp"
+            android:textSize="16sp"
             android:textStyle="bold" 
         android:fontFamily="sans-serif-medium"/>
 
@@ -121,20 +122,26 @@
         android:textStyle="bold"/>
     </LinearLayout>
 
+    <View
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:background="@color/mp_brand_outline" />
+
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
+        android:paddingStart="8dp"
         android:orientation="vertical">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="8dp"
             android:gravity="center"
             android:text="@string/ExposureTime"
             android:textColor="@color/mp_brand_text"
-            android:textSize="20sp"
+            android:textSize="16sp"
             android:textStyle="bold" 
         android:fontFamily="sans-serif-medium"/>
 

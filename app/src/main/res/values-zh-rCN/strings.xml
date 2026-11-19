@@ -2,6 +2,10 @@
 <resources>
     <string name="app_name">M-Photo Mono</string>
     <string name="app_title">M-Photo Mono</string>
+    <string name="manual_mode_title">手动拍摄</string>
+    <string name="manual_back">返回</string>
+    <string name="manual_previous_frame">上一张相框</string>
+    <string name="manual_next_frame">下一张相框</string>
     <string name="ExposureTime">曝光时间</string>
     <string name="take_picture">拍照</string>
     <string name="settings">设置\n</string>
@@ -10,11 +14,12 @@
     <string name="Cancel">取消</string>
     <string name="PrintImage">打印图片</string>
     <string name="SelectImageFromGalery">从图库选择图片</string>
-    <string name="RecommendFrame">推荐相框比例：4x3</string>
+    <string name="RecommendFrame">推荐相框比例：4×3</string>
     <string name="iso">ISO</string>
     <string name="image_list_title">图片列表</string>
     <string name="sub_photo_list_title">副图列表</string>
     <string name="frame_list_title">相框列表</string>
+    <string name="frame_delete">删除</string>
     <string name="close">关闭</string>
     <string name="please_connect_printer">请连接并打开打印机</string>
     <string name="vietnamese">越南语</string>
